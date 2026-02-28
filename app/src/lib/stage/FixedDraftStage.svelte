@@ -335,15 +335,9 @@
 		return hx0 * (1 - ty) + hx1 * ty;
 	}
 
-	function sampleTopFromOtherViews(
-		basePoint: THREE.Vector3,
-		normal: THREE.Vector3,
-		view: ViewId,
-		excludeStrokeId?: string
-	) {
+	function sampleTopFromExistingDots(basePoint: THREE.Vector3, normal: THREE.Vector3, excludeStrokeId?: string) {
 		let maxHeight = 0;
 		for (const dot of strokeDots) {
-			if (dot.view === view) continue;
 			if (excludeStrokeId && dot.strokeId === excludeStrokeId) continue;
 
 			tmpSampleDelta.subVectors(dot.position, basePoint);
@@ -463,10 +457,10 @@
 		const depositAmount = layerStep * 0.9;
 		const activeStrokeId = String(activeStroke.userData.strokeId ?? activeStroke.name);
 		const baseFromMap = sampleHeight(activeView, u, v);
-		const baseFromOtherViews = sampleTopFromOtherViews(point, activeNormal, activeView, activeStrokeId);
+		const baseFromExistingDots = sampleTopFromExistingDots(point, activeNormal, activeStrokeId);
 
-		if (baseFromOtherViews > baseFromMap) {
-			raiseBaseline(activeView, u, v, baseFromOtherViews, depositRadius);
+		if (baseFromExistingDots > baseFromMap) {
+			raiseBaseline(activeView, u, v, baseFromExistingDots, depositRadius);
 		}
 		depositHeight(activeView, u, v, depositRadius, depositAmount);
 		const dotHeight = sampleHeight(activeView, u, v);
