@@ -39,6 +39,8 @@ const queue = createSyncQueue<StudioSnapshotV1>(async (snapshot) => {
 
 	studioLastSyncedAt.set(Date.now());
 	studioSyncStatus.set('synced');
+}, {
+	coalesceKey: (snapshot) => snapshot.projectId
 });
 
 export function enqueueStudioSnapshotSync(snapshot: StudioSnapshotV1) {
@@ -48,4 +50,3 @@ export function enqueueStudioSnapshotSync(snapshot: StudioSnapshotV1) {
 export function getPendingSyncCount() {
 	return queue.size();
 }
-
