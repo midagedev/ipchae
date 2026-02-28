@@ -84,6 +84,7 @@
 	export let drawTool: DrawTool = 'free-draw';
 
 	type DrawTool = 'free-draw' | 'fill' | 'erase';
+	type PrimitiveKind = 'sphere' | 'box' | 'cylinder';
 	type InputMode = 'draw' | 'pan';
 	type BrushDotMesh = THREE.Mesh<THREE.SphereGeometry, THREE.MeshStandardMaterial>;
 	type SmoothSurfaceMesh = MarchingCubes;
@@ -837,6 +838,164 @@
 		};
 	}
 
+	function resolveViewFromDirection(direction: THREE.Vector3): ViewId {
+		let bestView: ViewId = activeView;
+		let bestDot = -Infinity;
+		for (const view of viewOrder) {
+			const normal = new THREE.Vector3(...VIEW_CONFIGS[view].normal).normalize();
+			const dot = direction.dot(normal);
+			if (dot > bestDot) {
+				bestDot = dot;
+				bestView = view;
+			}
+		}
+		return bestView;
+	}
+
+	function createPrimitiveSnapshot(kind: PrimitiveKind): StrokeSnapshot {
+		const strokeId = `stroke-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+		const center = getActiveSlicePoint().clone();
+		const size = THREE.MathUtils.clamp(brushRadius * 7.2, 0.26, 1.64);
+		const dotRadius = THREE.MathUtils.clamp(brushRadius * 0.58, 0.03, 0.22);
+		const depositRadius = dotRadius * 1.22;
+		const depositAmount = Math.max(dotRadius * 0.78, 0.016);
+		const points: THREE.Vector3[] = [];
+		const pointKeys = new Set<string>();
+		const pushPoint = (point: THREE.Vector3) => {
+			const key = `${point.x.toFixed(3)}:${point.y.toFixed(3)}:${point.z.toFixed(3)}`;
+			if (pointKeys.has(key)) return;
+			pointKeys.add(key);
+			points.push(point);
+		};
+
+		if (kind === 'sphere') {
+			const rings = 7;
+			const segments = 14;
+			for (let r = 0; r <= rings; r += 1) {
+				const phi = -Math.PI / 2 + (r / rings) * Math.PI;
+				const cosPhi = Math.cos(phi);
+				const sinPhi = Math.sin(phi);
+				for (let s = 0; s < segments; s += 1) {
+					const theta = (s / segments) * Math.PI * 2;
+					const cosTheta = Math.cos(theta);
+					const sinTheta = Math.sin(theta);
+					const point = center
+						.clone()
+						.addScaledVector(activeTangentU, size * cosPhi * cosTheta)
+						.addScaledVector(activeTangentV, size * sinPhi)
+						.addScaledVector(activeNormal, size * cosPhi * sinTheta);
+					pushPoint(point);
+				}
+			}
+		} else if (kind === 'box') {
+			const half = size * 0.92;
+			const steps = 4;
+			const values: number[] = [];
+			for (let i = 0; i <= steps; i += 1) {
+				values.push(-half + (i / steps) * (half * 2));
+			}
+			for (const a of values) {
+				for (const b of values) {
+					pushPoint(
+						center
+							.clone()
+							.addScaledVector(activeTangentU, a)
+							.addScaledVector(activeTangentV, b)
+							.addScaledVector(activeNormal, half)
+					);
+					pushPoint(
+						center
+							.clone()
+							.addScaledVector(activeTangentU, a)
+							.addScaledVector(activeTangentV, b)
+							.addScaledVector(activeNormal, -half)
+					);
+					pushPoint(
+						center
+							.clone()
+							.addScaledVector(activeTangentU, a)
+							.addScaledVector(activeTangentV, half)
+							.addScaledVector(activeNormal, b)
+					);
+					pushPoint(
+						center
+							.clone()
+							.addScaledVector(activeTangentU, a)
+							.addScaledVector(activeTangentV, -half)
+							.addScaledVector(activeNormal, b)
+					);
+					pushPoint(
+						center
+							.clone()
+							.addScaledVector(activeTangentU, half)
+							.addScaledVector(activeTangentV, a)
+							.addScaledVector(activeNormal, b)
+					);
+					pushPoint(
+						center
+							.clone()
+							.addScaledVector(activeTangentU, -half)
+							.addScaledVector(activeTangentV, a)
+							.addScaledVector(activeNormal, b)
+					);
+				}
+			}
+		} else {
+			const radius = size * 0.88;
+			const halfHeight = size * 0.94;
+			const segments = 18;
+			const levels = 5;
+			for (let level = 0; level < levels; level += 1) {
+				const y = -halfHeight + (level / (levels - 1)) * (halfHeight * 2);
+				for (let s = 0; s < segments; s += 1) {
+					const theta = (s / segments) * Math.PI * 2;
+					pushPoint(
+						center
+							.clone()
+							.addScaledVector(activeTangentU, Math.cos(theta) * radius)
+							.addScaledVector(activeNormal, Math.sin(theta) * radius)
+							.addScaledVector(activeTangentV, y)
+					);
+				}
+			}
+			const capRings = 3;
+			for (const sign of [-1, 1]) {
+				for (let ring = 0; ring <= capRings; ring += 1) {
+					const ringRadius = radius * (1 - ring / (capRings + 1));
+					for (let s = 0; s < segments; s += 1) {
+						const theta = (s / segments) * Math.PI * 2;
+						pushPoint(
+							center
+								.clone()
+								.addScaledVector(activeTangentU, Math.cos(theta) * ringRadius)
+								.addScaledVector(activeNormal, Math.sin(theta) * ringRadius)
+								.addScaledVector(activeTangentV, sign * halfHeight)
+						);
+					}
+				}
+			}
+		}
+
+		const colorHex = brushColorHex || '#2563eb';
+		const dots: StrokeSnapshotDot[] = points.map((point) => {
+			const direction = point.clone().sub(center);
+			const view = resolveViewFromDirection(direction.lengthSq() > 1e-8 ? direction.normalize() : activeNormal);
+			return {
+				basePoint: [point.x, point.y, point.z],
+				radius: dotRadius,
+				depositRadius,
+				depositAmount,
+				view,
+				colorHex
+			};
+		});
+
+		return {
+			strokeId,
+			dots
+		};
+	}
+
 	function captureStrokeSnapshot(strokeId: string): StrokeSnapshot | null {
 		const dots = strokeDots.filter((dot) => dot.strokeId === strokeId && dot.depositAmount > 1e-6);
 		if (dots.length === 0) return null;
@@ -1130,6 +1289,22 @@
 		pushHistory({
 			kind: 'draw',
 			snapshot: duplicatedSnapshot
+		});
+		return true;
+	}
+
+	export function insertPrimitiveMesh(kind: PrimitiveKind) {
+		if (editLocked) return false;
+		const snapshot = createPrimitiveSnapshot(kind);
+		if (snapshot.dots.length === 0) return false;
+		restoreStrokeFromSnapshot(snapshot, {
+			strokeId: snapshot.strokeId
+		});
+		const committed = captureStrokeSnapshot(snapshot.strokeId);
+		if (!committed) return false;
+		pushHistory({
+			kind: 'draw',
+			snapshot: committed
 		});
 		return true;
 	}

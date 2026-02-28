@@ -673,6 +673,17 @@
 		syncSelectedStrokeId();
 	}
 
+	function insertPrimitive(kind: 'sphere' | 'box' | 'cylinder') {
+		if (activeLayerBlocked) {
+			editActionStatus = blockedEditMessage();
+			return;
+		}
+		const ok = stageRef?.insertPrimitiveMesh?.(kind);
+		const label = kind === 'sphere' ? 'Sphere' : kind === 'box' ? 'Box' : 'Cylinder';
+		editActionStatus = ok ? `${label} 프리미티브 생성` : '프리미티브를 생성할 수 없습니다.';
+		syncSelectedStrokeId();
+	}
+
 	function clearStrokeSelection() {
 		stageRef?.clearStrokeSelection?.();
 		editActionStatus = '선택 해제';
@@ -1028,6 +1039,11 @@
 						{/if}
 					</div>
 					{#if !beginnerMode}
+						<div class="transform-grid primitive-grid">
+							<button type="button" class="mini-export-btn" on:click={() => insertPrimitive('sphere')}>Sphere</button>
+							<button type="button" class="mini-export-btn" on:click={() => insertPrimitive('box')}>Box</button>
+							<button type="button" class="mini-export-btn" on:click={() => insertPrimitive('cylinder')}>Cylinder</button>
+						</div>
 						<div class="transform-grid">
 							<button type="button" class="mini-export-btn" on:click={() => nudgeSelection(-0.12, 0)}>Move L</button>
 							<button type="button" class="mini-export-btn" on:click={() => nudgeSelection(0.12, 0)}>Move R</button>
@@ -1638,6 +1654,10 @@
 		display: grid;
 		grid-template-columns: repeat(3, minmax(0, 1fr));
 		gap: 6px;
+	}
+
+	.primitive-grid {
+		margin-top: 10px;
 	}
 
 	.edit-help {

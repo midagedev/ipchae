@@ -42,6 +42,7 @@ export type EditorStageHandle = {
 	deleteSelectedStroke: () => boolean;
 	pasteCopiedStroke: () => boolean;
 	duplicateSelectedStroke: () => boolean;
+	insertPrimitiveMesh: (kind: 'sphere' | 'box' | 'cylinder') => boolean;
 	translateSelectedStroke: (dx: number, dy: number, dz: number) => boolean;
 	nudgeSelectedStroke: (deltaU: number, deltaV: number, deltaN?: number) => boolean;
 	scaleSelectedStroke: (scaleFactor: number) => boolean;

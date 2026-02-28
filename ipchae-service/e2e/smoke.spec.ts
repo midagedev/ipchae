@@ -29,6 +29,7 @@ test('studio renders import action', async ({ page }) => {
 	await expect(page.getByRole('button', { name: 'Duplicate' })).toBeVisible();
 	await page.getByRole('button', { name: '초등 모드' }).click();
 	await expect(page.getByRole('button', { name: 'Import' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Sphere' })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Delete' })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Slice Cut' })).toBeVisible();
 });
