@@ -222,3 +222,6 @@
    2. T8 운영: chunk warning 임계치 조정으로 빌드 경고 노이즈 축소
 12. 2026-02-28 (commit `e72151e`)
    1. T5 진행: `/share/:slug`, `/part/:slug`에 동적 `<svelte:head>` OG/Twitter 메타 연결
+13. 2026-02-28 (commit `f32da05`)
+   1. T2/T3 성능: Studio autosave sync queue에 `projectId` 기준 coalescing 적용(중복 스냅샷 병합)
+   2. T8 품질: sync queue coalescing 동작 테스트 추가
