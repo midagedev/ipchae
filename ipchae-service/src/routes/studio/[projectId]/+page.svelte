@@ -23,6 +23,11 @@
 		buildAsciiStl,
 		downloadTextFile
 	} from '$lib/core/export/mesh-export-service';
+	import {
+		MeshImportError,
+		importMeshFile,
+		type MeshImportSummary
+	} from '$lib/core/import/mesh-import-service';
 	import { savePartFromDraft } from '$lib/core/parts/my-part-store';
 	import { createProjectShareFromProject } from '$lib/core/share/share-service';
 	import { loadStudioSnapshot, saveStudioSnapshot } from '$lib/core/persistence/project-snapshot-store';
@@ -107,6 +112,9 @@
 	let starterBodyRatio = 1;
 	let starterLegRatio = 0.75;
 	let starterApplyNote = '';
+	let importStatus = '';
+	let importSummary: MeshImportSummary | null = null;
+	let importInputRef: HTMLInputElement | null = null;
 	let exportFormat: 'stl' | 'ply' = 'stl';
 	let validationReport: ValidationReport | null = null;
 	let exportStatus = '';
@@ -435,6 +443,38 @@
 		void recordToolUsed('add-blob');
 	}
 
+	function triggerImport() {
+		importInputRef?.click();
+	}
+
+	async function onImportFileChange(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		if (!file) return;
+		importStatus = '';
+		try {
+			const summary = await importMeshFile(file);
+			importSummary = summary;
+			importStatus = [
+				`Imported ${summary.format.toUpperCase()}`,
+				`v:${summary.vertexCount.toLocaleString()}`,
+				`f:${summary.faceCount.toLocaleString()}`,
+				`tri:${summary.triangleCount.toLocaleString()}`,
+				`scale:${summary.normalization.uniformScale}`
+			].join(' · ');
+			await recordToolUsed('import-mesh');
+		} catch (error) {
+			importSummary = null;
+			if (error instanceof MeshImportError) {
+				importStatus = `Import failed (${error.code}): ${error.message}`;
+			} else {
+				importStatus = error instanceof Error ? `Import failed: ${error.message}` : 'Import failed';
+			}
+		} finally {
+			input.value = '';
+		}
+	}
+
 	function selectDrawTool(nextTool: DrawTool) {
 		drawTool = nextTool;
 		void recordToolUsed(nextTool);
@@ -546,6 +586,14 @@
 				<span class="mode-pill">{modeLabelMap[startMode] ?? 'Blank'}</span>
 				<span class="sync-pill">{localSaveLabel}</span>
 				<span class="sync-pill">{remoteSyncLabel}</span>
+				<input
+					bind:this={importInputRef}
+					class="import-input"
+					type="file"
+					accept=".stl,.ply,.obj,.glb"
+					on:change={onImportFileChange}
+				/>
+				<button type="button" class="app-btn" on:click={triggerImport}>Import</button>
 				<button type="button" class="app-btn" on:click={() => stageRef?.undoLastStroke?.()}>Undo</button>
 				<button type="button" class="app-btn" on:click={() => stageRef?.clearAllStrokes?.()}>Clear</button>
 				<button type="button" class="app-btn" on:click={zoomOut}>-</button>
@@ -833,6 +881,16 @@
 					{#if shareStatus}
 						<p class="export-status">{shareStatus}</p>
 					{/if}
+					{#if importStatus}
+						<p class="export-status">{importStatus}</p>
+					{/if}
+					{#if importSummary && importSummary.warnings.length > 0}
+						<ul class="validation-list">
+							{#each importSummary.warnings as warning}
+								<li class="warning">{warning}</li>
+							{/each}
+						</ul>
+					{/if}
 				</div>
 			</aside>
 
@@ -937,6 +995,10 @@
 	.action-group {
 		justify-content: flex-end;
 		flex-wrap: nowrap;
+	}
+
+	.import-input {
+		display: none;
 	}
 
 	.mode-pill {

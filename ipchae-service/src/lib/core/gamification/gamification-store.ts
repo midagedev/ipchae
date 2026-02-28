@@ -1,7 +1,15 @@
 import { createStore, get, set } from 'idb-keyval';
 import { writable } from 'svelte/store';
 
-type ToolId = 'free-draw' | 'fill' | 'erase' | 'add-blob' | 'push-pull' | 'smooth' | 'carve';
+type ToolId =
+	| 'free-draw'
+	| 'fill'
+	| 'erase'
+	| 'add-blob'
+	| 'push-pull'
+	| 'smooth'
+	| 'carve'
+	| 'import-mesh';
 
 type AchievementDef = {
 	code: string;
