@@ -24,6 +24,7 @@
 		downloadTextFile
 	} from '$lib/core/export/mesh-export-service';
 	import { savePartFromDraft } from '$lib/core/parts/my-part-store';
+	import { createProjectShareFromProject } from '$lib/core/share/share-service';
 	import { loadStudioSnapshot, saveStudioSnapshot } from '$lib/core/persistence/project-snapshot-store';
 	import {
 		gamificationProfile,
@@ -107,6 +108,7 @@
 	let validationReport: ValidationReport | null = null;
 	let exportStatus = '';
 	let partSaveStatus = '';
+	let shareStatus = '';
 
 	let brushSize = 20;
 	let brushStrength = 0.28;
@@ -493,6 +495,32 @@
 		});
 		partSaveStatus = `Saved ${part.name} as private`;
 	}
+
+	async function createShareLink() {
+		const projectId = page.params.projectId;
+		if (!projectId) {
+			shareStatus = 'Share failed: missing project id';
+			return;
+		}
+		const shareSlug = await createProjectShareFromProject({
+			projectId,
+			title: `Project ${projectId.slice(0, 8)}`,
+			description: '이걸 이용해서 고쳐보시겠어요?',
+			visibility: 'unlisted',
+			allowClone: true
+		});
+		if (!shareSlug) {
+			shareStatus = 'Share failed';
+			return;
+		}
+		const shareUrl = `${window.location.origin}${base}/share/${shareSlug}`;
+		try {
+			await navigator.clipboard.writeText(shareUrl);
+			shareStatus = `Share copied: ${shareUrl}`;
+		} catch {
+			shareStatus = `Share created: ${shareUrl}`;
+		}
+	}
 </script>
 
 <sp-theme class="studio-theme" system="spectrum-two" color="dark" scale="large">
@@ -519,6 +547,7 @@
 				<button type="button" class="app-btn" on:click={zoomIn}>+</button>
 				<button type="button" class="app-btn" on:click={() => stageRef?.resetMainView?.()}>Reset</button>
 				<button type="button" class="app-btn" on:click={saveCurrentPart}>Save Part</button>
+				<button type="button" class="app-btn" on:click={createShareLink}>Share</button>
 				<button type="button" class="app-btn primary" on:click={() => exportCurrent(exportFormat)}>Export</button>
 			</div>
 		</header>
@@ -790,6 +819,9 @@
 					{/if}
 					{#if partSaveStatus}
 						<p class="export-status">{partSaveStatus}</p>
+					{/if}
+					{#if shareStatus}
+						<p class="export-status">{shareStatus}</p>
 					{/if}
 				</div>
 			</aside>

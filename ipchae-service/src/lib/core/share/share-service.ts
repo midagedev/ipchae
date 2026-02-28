@@ -1,4 +1,5 @@
 import type { StartMode, StudioSnapshotV1 } from '$lib/core/contracts/studio';
+import { createStore, get, set } from 'idb-keyval';
 import {
 	recordPartImportReward,
 	recordShareCloneReward
@@ -84,6 +85,28 @@ function buildSlug(seed: string) {
 	return `${base || 'share'}-${suffix}`;
 }
 
+const SHARE_STORE = createStore('ipchae-local', 'shares');
+const LOCAL_PROJECT_SHARES_KEY = 'project-shares-v1';
+const LOCAL_PART_SHARES_KEY = 'part-shares-v1';
+
+async function readLocalProjectShares() {
+	const rows = await get<ProjectShareView[] | undefined>(LOCAL_PROJECT_SHARES_KEY, SHARE_STORE);
+	return rows ?? [];
+}
+
+async function writeLocalProjectShares(shares: ProjectShareView[]) {
+	await set(LOCAL_PROJECT_SHARES_KEY, shares, SHARE_STORE);
+}
+
+async function readLocalPartShares() {
+	const rows = await get<PartShareView[] | undefined>(LOCAL_PART_SHARES_KEY, SHARE_STORE);
+	return rows ?? [];
+}
+
+async function writeLocalPartShares(shares: PartShareView[]) {
+	await set(LOCAL_PART_SHARES_KEY, shares, SHARE_STORE);
+}
+
 const PROJECT_MOCKS: ProjectShareView[] = [
 	{
 		shareSlug: 'demo-hero-robot',
@@ -148,6 +171,10 @@ export async function loadProjectShare(shareSlug: string): Promise<ProjectShareV
 		}
 	}
 
+	const localShares = await readLocalProjectShares();
+	const local = localShares.find((item) => item.shareSlug === shareSlug);
+	if (local) return local;
+
 	return PROJECT_MOCKS.find((item) => item.shareSlug === shareSlug) ?? null;
 }
 
@@ -192,6 +219,10 @@ export async function loadPartShare(partShareSlug: string): Promise<PartShareVie
 		}
 	}
 
+	const localShares = await readLocalPartShares();
+	const local = localShares.find((item) => item.partShareSlug === partShareSlug);
+	if (local) return local;
+
 	return PART_MOCKS.find((item) => item.partShareSlug === partShareSlug) ?? null;
 }
 
@@ -209,11 +240,39 @@ export async function createProjectShareFromProject({
 	allowClone?: boolean;
 }): Promise<string | null> {
 	const supabase = getSupabaseClient();
-	if (!supabase) return null;
+	if (!supabase) {
+		const shareSlug = buildSlug(title);
+		const localShare: ProjectShareView = {
+			shareSlug,
+			sourceProjectId: projectId,
+			ownerName: 'local-user',
+			title,
+			description,
+			visibility: visibility === 'private' ? 'unlisted' : visibility,
+			allowClone
+		};
+		const localShares = await readLocalProjectShares();
+		await writeLocalProjectShares([localShare, ...localShares.filter((item) => item.shareSlug !== shareSlug)]);
+		return shareSlug;
+	}
 	const {
 		data: { session }
 	} = await supabase.auth.getSession();
-	if (!session?.user?.id) return null;
+	if (!session?.user?.id) {
+		const shareSlug = buildSlug(title);
+		const localShare: ProjectShareView = {
+			shareSlug,
+			sourceProjectId: projectId,
+			ownerName: 'local-user',
+			title,
+			description,
+			visibility: visibility === 'private' ? 'unlisted' : visibility,
+			allowClone
+		};
+		const localShares = await readLocalProjectShares();
+		await writeLocalProjectShares([localShare, ...localShares.filter((item) => item.shareSlug !== shareSlug)]);
+		return shareSlug;
+	}
 
 	const shareSlug = buildSlug(title);
 	const { error } = await supabase.from('project_shares').insert({
@@ -245,11 +304,41 @@ export async function createPartShareFromPart({
 	allowRemix?: boolean;
 }): Promise<string | null> {
 	const supabase = getSupabaseClient();
-	if (!supabase) return null;
+	if (!supabase) {
+		const shareSlug = buildSlug(title);
+		const localShare: PartShareView = {
+			partShareSlug: shareSlug,
+			partId,
+			partName: title,
+			category: 'part',
+			styleFamily: 'generic',
+			ownerName: 'local-user',
+			allowImport,
+			allowRemix
+		};
+		const localShares = await readLocalPartShares();
+		await writeLocalPartShares([localShare, ...localShares.filter((item) => item.partShareSlug !== shareSlug)]);
+		return shareSlug;
+	}
 	const {
 		data: { session }
 	} = await supabase.auth.getSession();
-	if (!session?.user?.id) return null;
+	if (!session?.user?.id) {
+		const shareSlug = buildSlug(title);
+		const localShare: PartShareView = {
+			partShareSlug: shareSlug,
+			partId,
+			partName: title,
+			category: 'part',
+			styleFamily: 'generic',
+			ownerName: 'local-user',
+			allowImport,
+			allowRemix
+		};
+		const localShares = await readLocalPartShares();
+		await writeLocalPartShares([localShare, ...localShares.filter((item) => item.partShareSlug !== shareSlug)]);
+		return shareSlug;
+	}
 
 	const shareSlug = buildSlug(title);
 	const { error } = await supabase.from('part_shares').insert({
@@ -341,4 +430,3 @@ export async function importPartFromShare(share: PartShareView): Promise<string>
 	await recordPartImportReward(share.partShareSlug);
 	return projectId;
 }
-
