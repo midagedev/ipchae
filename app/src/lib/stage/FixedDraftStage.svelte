@@ -47,7 +47,7 @@
 
 	const viewOrder: ViewId[] = ['front', 'right', 'top', 'left', 'back'];
 
-	export let brushSize = 12;
+	export let brushSize = 40;
 	export let brushStrength = 0.45;
 	export let brushColorHex = '#2563eb';
 	export let paletteColors: string[] = [];
@@ -128,7 +128,6 @@
 	const SPEED_REF_UNITS_PER_SEC = 8;
 
 	$: brushRadius = 0.02 + (Math.max(1, Math.min(brushSize, 60)) / 60) * 0.18;
-	$: brushOpacity = THREE.MathUtils.clamp(0.22 + brushStrength * 0.78, 0.22, 1);
 	$: brushRoughness = THREE.MathUtils.clamp(0.7 - brushStrength * 0.35, 0.2, 0.75);
 	$: quickPalette =
 		(paletteColors.length
@@ -472,9 +471,7 @@
 			new THREE.MeshStandardMaterial({
 				color: resolveBrushColor(),
 				roughness: brushRoughness,
-				metalness: 0.06,
-				transparent: true,
-				opacity: brushOpacity
+				metalness: 0.06
 			})
 		);
 		brushDot.position.copy(liftedPoint);
