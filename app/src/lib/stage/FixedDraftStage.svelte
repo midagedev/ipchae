@@ -88,6 +88,8 @@
 	let resizeObserver: ResizeObserver | null = null;
 
 	let guidePlane: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> | null = null;
+	let guideGrid: THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicMaterial> | null = null;
+	let guideAxes: THREE.Group | null = null;
 	const drawPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
 	const activeNormal = new THREE.Vector3(...VIEW_CONFIGS.front.normal).normalize();
 	const activeTangentU = new THREE.Vector3(1, 0, 0);
@@ -230,8 +232,25 @@
 			guidePlane.geometry.dispose();
 			guidePlane.material.dispose();
 		}
+		if (guideGrid) {
+			scene.remove(guideGrid);
+			guideGrid.geometry.dispose();
+			guideGrid.material.dispose();
+		}
+		if (guideAxes) {
+			scene.remove(guideAxes);
+			for (const child of guideAxes.children) {
+				if (child instanceof THREE.Line) {
+					child.geometry.dispose();
+					child.material.dispose();
+				}
+			}
+		}
 
 		const normal = new THREE.Vector3(...normalTuple).normalize();
+		const guideRotation = new THREE.Quaternion().setFromRotationMatrix(
+			new THREE.Matrix4().makeBasis(activeTangentU.clone(), activeTangentV.clone(), activeNormal.clone())
+		);
 		guidePlane = new THREE.Mesh(
 			new THREE.PlaneGeometry(16, 16),
 			new THREE.MeshBasicMaterial({
@@ -242,9 +261,71 @@
 				depthWrite: false
 			})
 		);
-		guidePlane.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+		guidePlane.quaternion.copy(guideRotation);
 		guidePlane.position.copy(stageTarget);
 		scene.add(guidePlane);
+
+		const gridExtent = 8;
+		const gridStep = 0.5;
+		const gridHalfSteps = Math.round(gridExtent / gridStep);
+		const gridPositions: number[] = [];
+		for (let i = -gridHalfSteps; i <= gridHalfSteps; i += 1) {
+			const offset = i * gridStep;
+			gridPositions.push(-gridExtent, offset, 0, gridExtent, offset, 0);
+			gridPositions.push(offset, -gridExtent, 0, offset, gridExtent, 0);
+		}
+
+		const gridGeometry = new THREE.BufferGeometry();
+		gridGeometry.setAttribute('position', new THREE.Float32BufferAttribute(gridPositions, 3));
+		guideGrid = new THREE.LineSegments(
+			gridGeometry,
+			new THREE.LineBasicMaterial({
+				color: 0x64748b,
+				transparent: true,
+				opacity: 0.38,
+				depthTest: false,
+				depthWrite: false
+			})
+		);
+		guideGrid.quaternion.copy(guideRotation);
+		guideGrid.position.copy(stageTarget);
+		guideGrid.renderOrder = 2;
+		scene.add(guideGrid);
+
+		const axisLength = 4.6;
+		const axisNormalLength = 1.7;
+		const makeAxisLine = (a: THREE.Vector3, b: THREE.Vector3, color: number) => {
+			const axisGeometry = new THREE.BufferGeometry().setFromPoints([a, b]);
+			return new THREE.Line(
+				axisGeometry,
+				new THREE.LineBasicMaterial({
+					color,
+					transparent: true,
+					opacity: 0.92,
+					depthTest: false,
+					depthWrite: false
+				})
+			);
+		};
+
+		guideAxes = new THREE.Group();
+		guideAxes.add(
+			makeAxisLine(new THREE.Vector3(-axisLength, 0, 0), new THREE.Vector3(axisLength, 0, 0), 0xef4444)
+		);
+		guideAxes.add(
+			makeAxisLine(new THREE.Vector3(0, -axisLength, 0), new THREE.Vector3(0, axisLength, 0), 0x22c55e)
+		);
+		guideAxes.add(
+			makeAxisLine(
+				new THREE.Vector3(0, 0, -axisNormalLength * 0.35),
+				new THREE.Vector3(0, 0, axisNormalLength),
+				0x0ea5e9
+			)
+		);
+		guideAxes.quaternion.copy(guideRotation);
+		guideAxes.position.copy(stageTarget);
+		guideAxes.renderOrder = 3;
+		scene.add(guideAxes);
 	}
 
 	function syncDrawPlane() {
@@ -798,6 +879,8 @@
 		mainCamera.lookAt(stageTarget);
 		syncDrawPlane();
 		guidePlane?.position.copy(stageTarget);
+		guideGrid?.position.copy(stageTarget);
+		guideAxes?.position.copy(stageTarget);
 
 		if (pipControls) {
 			pipControls.target.copy(stageTarget);
@@ -889,6 +972,18 @@
 		if (guidePlane) {
 			guidePlane.geometry.dispose();
 			guidePlane.material.dispose();
+		}
+		if (guideGrid) {
+			guideGrid.geometry.dispose();
+			guideGrid.material.dispose();
+		}
+		if (guideAxes) {
+			for (const child of guideAxes.children) {
+				if (child instanceof THREE.Line) {
+					child.geometry.dispose();
+					child.material.dispose();
+				}
+			}
 		}
 
 		unitSphere.dispose();
