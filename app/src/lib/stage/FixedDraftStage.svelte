@@ -2,14 +2,24 @@
 	import { onDestroy, onMount } from 'svelte';
 	import * as THREE from 'three';
 	import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+	import { MarchingCubes } from 'three/examples/jsm/objects/MarchingCubes.js';
 
 	type ViewId = 'front' | 'back' | 'left' | 'right' | 'top';
+	type SliceAxis = 'x' | 'y' | 'z';
 
 	type ViewConfig = {
 		label: string;
 		position: [number, number, number];
 		up: [number, number, number];
 		normal: [number, number, number];
+	};
+	type SliceLayerOverlay = {
+		id: string;
+		axis: SliceAxis;
+		depth: number;
+		visible?: boolean;
+		active?: boolean;
+		colorHex?: string;
 	};
 
 	const VIEW_CONFIGS: Record<ViewId, ViewConfig> = {
@@ -44,6 +54,16 @@
 			normal: [0, 1, 0]
 		}
 	};
+	const AXIS_NORMALS: Record<SliceAxis, THREE.Vector3> = {
+		x: new THREE.Vector3(1, 0, 0),
+		y: new THREE.Vector3(0, 1, 0),
+		z: new THREE.Vector3(0, 0, 1)
+	};
+	const AXIS_UPS: Record<SliceAxis, THREE.Vector3> = {
+		x: new THREE.Vector3(0, 1, 0),
+		y: new THREE.Vector3(0, 0, -1),
+		z: new THREE.Vector3(0, 1, 0)
+	};
 
 	const viewOrder: ViewId[] = ['front', 'right', 'top', 'left', 'back'];
 
@@ -53,11 +73,18 @@
 	export let paletteColors: string[] = [];
 	export let autoFillClosedStroke = false;
 	export let mirrorDraw = false;
+	export let smoothMeshView = true;
+	export let showInternalChrome = true;
+	export let sliceEnabled = false;
+	export let sliceDepth = 0;
+	export let sliceLayerOverlays: SliceLayerOverlay[] = [];
+	export let drawLocked = false;
 	export let drawTool: DrawTool = 'free-draw';
 
 	type DrawTool = 'free-draw' | 'fill' | 'erase';
 	type InputMode = 'draw' | 'pan';
 	type BrushDotMesh = THREE.Mesh<THREE.SphereGeometry, THREE.MeshStandardMaterial>;
+	type SmoothSurfaceMesh = MarchingCubes;
 	type StrokeDot = {
 		id: string;
 		mesh: BrushDotMesh;
@@ -96,6 +123,7 @@
 	let mainWrap: HTMLDivElement | undefined;
 	let mainCanvas: HTMLCanvasElement | undefined;
 	let pipCanvas: HTMLCanvasElement | undefined;
+	let pipWrap: HTMLDivElement | undefined;
 
 	let mainRenderer: THREE.WebGLRenderer | null = null;
 	let pipRenderer: THREE.WebGLRenderer | null = null;
@@ -103,6 +131,9 @@
 	let mainCamera: THREE.OrthographicCamera | null = null;
 	let pipCamera: THREE.PerspectiveCamera | null = null;
 	let pipControls: OrbitControls | null = null;
+	let smoothSurface: SmoothSurfaceMesh | null = null;
+	let smoothSurfaceMaterial: THREE.MeshStandardMaterial | null = null;
+	let smoothSurfaceDirty = true;
 
 	let animationFrame = 0;
 	let resizeObserver: ResizeObserver | null = null;
@@ -110,6 +141,7 @@
 	let guidePlane: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> | null = null;
 	let guideGrid: THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicMaterial> | null = null;
 	let guideAxes: THREE.Group | null = null;
+	let pipSliceOverlayGroup: THREE.Group | null = null;
 	const drawPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
 	const activeNormal = new THREE.Vector3(...VIEW_CONFIGS.front.normal).normalize();
 	const activeTangentU = new THREE.Vector3(1, 0, 0);
@@ -119,6 +151,7 @@
 	const stageTarget = new THREE.Vector3(0, 0, 0);
 	const tmpSampleDelta = new THREE.Vector3();
 	const tmpEraseDelta = new THREE.Vector3();
+	const tmpSlicePoint = new THREE.Vector3();
 
 	const strokeRoot = new THREE.Group();
 	const actionHistory: HistoryEntry[] = [];
@@ -156,10 +189,24 @@
 	let isPanning = false;
 	let panStartX = 0;
 	let panStartY = 0;
+	let pipViewportWidth = 220;
+	let pipViewportHeight = 145;
+	let pipPosX = 12;
+	let pipPosY = 12;
+	let pipMovedByUser = false;
+	let pipDragging = false;
+	let pipDragPointerId = -1;
+	let pipDragOffsetX = 0;
+	let pipDragOffsetY = 0;
+	let pipDragCaptureEl: HTMLElement | null = null;
 
 	const ORTHO_HALF_HEIGHT = 5.5;
 	const MIN_ZOOM = 0.55;
 	const MAX_ZOOM = 6;
+	const PIP_MARGIN = 8;
+	const PIP_SLICE_LAYER = 1;
+	const SLICE_DEPTH_MIN = -6;
+	const SLICE_DEPTH_MAX = 6;
 	const STACK_CELL_SIZE = 0.1;
 	const PATH_SAMPLE_STEP_RATIO = 0.3;
 	const MIN_PATH_SAMPLE_STEP = 0.009;
@@ -180,6 +227,13 @@
 	const FLOW_MAX_TRANSFER_RATIO = 0.68;
 	const FLOW_CARRY_RATIO = 0.95;
 	const FLOW_PAUSE_AFTER_STROKE_SEC = 0.16;
+	const SMOOTH_MESH_RESOLUTION = 48;
+	const SMOOTH_MESH_MAX_POLYGONS = 120000;
+	const SMOOTH_MESH_PADDING = 0.24;
+	const SMOOTH_MESH_MIN_SPAN = 1.2;
+	const SMOOTH_MESH_MAX_BALLS = 1800;
+	const SMOOTH_MESH_ISOLATION = 68;
+	const SMOOTH_MESH_SUBTRACT = 12;
 	const AUTO_FILL_MIN_POINTS = 16;
 	const AUTO_FILL_CLOSE_DISTANCE_FACTOR = 1.8;
 	const AUTO_FILL_CLOSE_DISTANCE_MIN = 0.12;
@@ -215,10 +269,175 @@
 			: ['#111827', '#ef4444', '#f59e0b', '#22c55e', '#06b6d4', '#3b82f6', '#8b5cf6', '#ffffff']
 		).slice(0, 10);
 
+	$: if (smoothMeshView !== undefined) {
+		syncDotVisibilityByRenderMode();
+		markSmoothSurfaceDirty();
+	}
+
+	$: {
+		sliceEnabled;
+		sliceDepth;
+		sliceLayerOverlays;
+		if (mainCamera) {
+			syncDrawPlane();
+			syncGuideAnchorsToSlice();
+			syncPipSliceOverlays();
+		}
+	}
+
+	function markSmoothSurfaceDirty() {
+		smoothSurfaceDirty = true;
+	}
+
+	function syncDotVisibilityByRenderMode() {
+		const showDots = !smoothMeshView;
+		for (const dot of strokeDots) {
+			dot.mesh.visible = dot.depositAmount > 1e-6 && showDots;
+		}
+	}
+
 	function resolveBrushColor() {
 		const color = new THREE.Color();
 		color.set(brushColorHex || '#2563eb');
 		return color;
+	}
+
+	function getActiveSliceOffset() {
+		if (!sliceEnabled) return 0;
+		return THREE.MathUtils.clamp(sliceDepth, SLICE_DEPTH_MIN, SLICE_DEPTH_MAX);
+	}
+
+	function getActiveSlicePoint() {
+		return tmpSlicePoint.copy(stageTarget).addScaledVector(activeNormal, getActiveSliceOffset());
+	}
+
+	function syncGuideAnchorsToSlice() {
+		const slicePoint = getActiveSlicePoint();
+		guidePlane?.position.copy(slicePoint);
+		guideGrid?.position.copy(slicePoint);
+		guideAxes?.position.copy(slicePoint);
+		pipSliceOverlayGroup?.position.copy(stageTarget);
+	}
+
+	function applyLayerRecursive(target: THREE.Object3D, layer: number) {
+		target.layers.set(layer);
+		for (const child of target.children) {
+			applyLayerRecursive(child, layer);
+		}
+	}
+
+	function getAxisBasis(axis: SliceAxis) {
+		const normal = AXIS_NORMALS[axis].clone().normalize();
+		const tangentV = AXIS_UPS[axis].clone().normalize();
+		tangentV.addScaledVector(normal, -tangentV.dot(normal)).normalize();
+		const tangentU = new THREE.Vector3().crossVectors(tangentV, normal).normalize();
+		return { normal, tangentU, tangentV };
+	}
+
+	function disposePipSliceOverlay() {
+		if (!pipSliceOverlayGroup) return;
+		scene?.remove(pipSliceOverlayGroup);
+		pipSliceOverlayGroup.traverse((object) => {
+			if (object instanceof THREE.Mesh) {
+				object.geometry.dispose();
+				if (Array.isArray(object.material)) {
+					for (const item of object.material) item.dispose();
+				} else {
+					object.material.dispose();
+				}
+			}
+			if (object instanceof THREE.Line || object instanceof THREE.LineSegments) {
+				object.geometry.dispose();
+				if (Array.isArray(object.material)) {
+					for (const item of object.material) item.dispose();
+				} else {
+					object.material.dispose();
+				}
+			}
+		});
+		pipSliceOverlayGroup = null;
+	}
+
+	function syncPipSliceOverlays() {
+		if (!scene) return;
+
+		disposePipSliceOverlay();
+		if (!sliceEnabled) return;
+
+		const visibleLayers = sliceLayerOverlays.filter((layer) => layer.visible !== false);
+		if (!visibleLayers.length) return;
+
+		const overlaysGroup = new THREE.Group();
+		overlaysGroup.position.copy(stageTarget);
+		for (const layer of visibleLayers) {
+			const { normal, tangentU, tangentV } = getAxisBasis(layer.axis);
+			const layerDepth = THREE.MathUtils.clamp(layer.depth, SLICE_DEPTH_MIN, SLICE_DEPTH_MAX);
+			const baseColor = new THREE.Color(layer.colorHex || '#3b82f6');
+			const active = Boolean(layer.active);
+			const layerGroup = new THREE.Group();
+			layerGroup.position.copy(normal).multiplyScalar(layerDepth);
+			layerGroup.quaternion.setFromRotationMatrix(
+				new THREE.Matrix4().makeBasis(tangentU, tangentV, normal)
+			);
+
+			const overlayPlaneGeometry = new THREE.PlaneGeometry(16, 16);
+			const overlayPlane = new THREE.Mesh(
+				overlayPlaneGeometry,
+				new THREE.MeshBasicMaterial({
+					color: baseColor,
+					transparent: true,
+					opacity: active ? 0.2 : 0.09,
+					side: THREE.DoubleSide,
+					depthTest: false,
+					depthWrite: false
+				})
+			);
+			overlayPlane.renderOrder = active ? 26 : 20;
+
+			const overlayOutline = new THREE.LineSegments(
+				new THREE.EdgesGeometry(overlayPlaneGeometry),
+				new THREE.LineBasicMaterial({
+					color: active ? new THREE.Color('#f8fbff') : baseColor,
+					transparent: true,
+					opacity: active ? 0.95 : 0.58,
+					depthTest: false,
+					depthWrite: false
+				})
+			);
+			overlayOutline.renderOrder = active ? 27 : 21;
+
+			const normalIndicator = new THREE.Line(
+				new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 1.2)]),
+				new THREE.LineBasicMaterial({
+					color: active ? new THREE.Color('#0ea5e9') : baseColor,
+					transparent: true,
+					opacity: active ? 0.92 : 0.5,
+					depthTest: false,
+					depthWrite: false
+				})
+			);
+			normalIndicator.renderOrder = active ? 28 : 22;
+
+			const centerMarker = new THREE.Mesh(
+				new THREE.CircleGeometry(active ? 0.1 : 0.07, 16),
+				new THREE.MeshBasicMaterial({
+					color: active ? new THREE.Color('#f8fbff') : baseColor,
+					transparent: true,
+					opacity: active ? 0.95 : 0.72,
+					depthTest: false,
+					depthWrite: false
+				})
+			);
+			centerMarker.position.z = 0.001;
+			centerMarker.renderOrder = active ? 29 : 23;
+
+			layerGroup.add(overlayPlane, overlayOutline, normalIndicator, centerMarker);
+			overlaysGroup.add(layerGroup);
+		}
+
+		applyLayerRecursive(overlaysGroup, PIP_SLICE_LAYER);
+		scene.add(overlaysGroup);
+		pipSliceOverlayGroup = overlaysGroup;
 	}
 
 	function setupStage() {
@@ -251,10 +470,13 @@
 			100
 		);
 		mainCamera.zoom = 1;
+		mainCamera.layers.set(0);
+		mainCamera.layers.disable(PIP_SLICE_LAYER);
 
 		pipCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 200);
 		pipCamera.position.set(8, 6, 8);
 		pipCamera.lookAt(stageTarget);
+		pipCamera.layers.enable(PIP_SLICE_LAYER);
 
 		pipControls = new OrbitControls(pipCamera, pipCanvas);
 		pipControls.enableDamping = true;
@@ -268,6 +490,23 @@
 		const keyLight = new THREE.DirectionalLight(0xffffff, 0.55);
 		keyLight.position.set(6, 8, 6);
 		scene.add(keyLight);
+
+		smoothSurfaceMaterial = new THREE.MeshStandardMaterial({
+			color: 0xcbd5e1,
+			roughness: 0.54,
+			metalness: 0.06
+		});
+		smoothSurface = new MarchingCubes(
+			SMOOTH_MESH_RESOLUTION,
+			smoothSurfaceMaterial,
+			false,
+			false,
+			SMOOTH_MESH_MAX_POLYGONS
+		);
+		smoothSurface.isolation = SMOOTH_MESH_ISOLATION;
+		smoothSurface.visible = smoothMeshView;
+		smoothSurface.renderOrder = 1;
+		scene.add(smoothSurface);
 
 		// 중심 기준점을 두면 Front/Side/Top에서 2D 드로잉 좌표 감각이 안정된다.
 		const originMarker = new THREE.Mesh(
@@ -321,7 +560,7 @@
 			})
 		);
 		guidePlane.quaternion.copy(guideRotation);
-		guidePlane.position.copy(stageTarget);
+		guidePlane.position.copy(getActiveSlicePoint());
 		scene.add(guidePlane);
 
 		const gridExtent = 8;
@@ -347,7 +586,7 @@
 			})
 		);
 		guideGrid.quaternion.copy(guideRotation);
-		guideGrid.position.copy(stageTarget);
+		guideGrid.position.copy(getActiveSlicePoint());
 		guideGrid.renderOrder = 2;
 		scene.add(guideGrid);
 
@@ -382,9 +621,10 @@
 			)
 		);
 		guideAxes.quaternion.copy(guideRotation);
-		guideAxes.position.copy(stageTarget);
+		guideAxes.position.copy(getActiveSlicePoint());
 		guideAxes.renderOrder = 3;
 		scene.add(guideAxes);
+		syncPipSliceOverlays();
 	}
 
 	function syncDrawPlane() {
@@ -393,10 +633,10 @@
 		activeTangentV.set(...config.up).normalize();
 		activeTangentV.addScaledVector(activeNormal, -activeTangentV.dot(activeNormal)).normalize();
 		activeTangentU.crossVectors(activeNormal, activeTangentV).normalize();
-		drawPlane.setFromNormalAndCoplanarPoint(activeNormal, stageTarget);
+		drawPlane.setFromNormalAndCoplanarPoint(activeNormal, getActiveSlicePoint());
 	}
 
-	function updateMainView(nextView: ViewId) {
+	export function updateMainView(nextView: ViewId) {
 		if (!mainCamera) return;
 
 		activeView = nextView;
@@ -419,17 +659,64 @@
 		pipControls.update();
 	}
 
-	function setInputMode(nextMode: InputMode) {
+	function clampPipPosition(snapToTopRight = false) {
+		if (!mainWrap || !pipWrap) return;
+		const maxX = Math.max(PIP_MARGIN, mainWrap.clientWidth - pipWrap.offsetWidth - PIP_MARGIN);
+		const maxY = Math.max(PIP_MARGIN, mainWrap.clientHeight - pipWrap.offsetHeight - PIP_MARGIN);
+		if (snapToTopRight) {
+			pipPosX = maxX;
+			pipPosY = PIP_MARGIN;
+			return;
+		}
+		pipPosX = THREE.MathUtils.clamp(pipPosX, PIP_MARGIN, maxX);
+		pipPosY = THREE.MathUtils.clamp(pipPosY, PIP_MARGIN, maxY);
+	}
+
+	function startPipDrag(event: PointerEvent) {
+		if (!mainWrap || !pipWrap) return;
+		pipDragging = true;
+		pipDragPointerId = event.pointerId;
+		pipDragCaptureEl = event.currentTarget as HTMLElement;
+		const pipRect = pipWrap.getBoundingClientRect();
+		pipDragOffsetX = event.clientX - pipRect.left;
+		pipDragOffsetY = event.clientY - pipRect.top;
+		pipDragCaptureEl.setPointerCapture(event.pointerId);
+		event.preventDefault();
+		event.stopPropagation();
+	}
+
+	function movePipDrag(event: PointerEvent) {
+		if (!pipDragging || event.pointerId !== pipDragPointerId || !mainWrap || !pipWrap) return;
+		const mainRect = mainWrap.getBoundingClientRect();
+		const nextX = event.clientX - mainRect.left - pipDragOffsetX;
+		const nextY = event.clientY - mainRect.top - pipDragOffsetY;
+		pipPosX = nextX;
+		pipPosY = nextY;
+		clampPipPosition(false);
+		pipMovedByUser = true;
+	}
+
+	function endPipDrag(event: PointerEvent) {
+		if (!pipDragging || event.pointerId !== pipDragPointerId) return;
+		if (pipDragCaptureEl?.hasPointerCapture(event.pointerId)) {
+			pipDragCaptureEl.releasePointerCapture(event.pointerId);
+		}
+		pipDragging = false;
+		pipDragPointerId = -1;
+		pipDragCaptureEl = null;
+	}
+
+	export function setInputMode(nextMode: InputMode) {
 		inputMode = nextMode;
 	}
 
-	function zoomMain(zoomFactor: number) {
+	export function zoomMain(zoomFactor: number) {
 		if (!mainCamera) return;
 		mainCamera.zoom = THREE.MathUtils.clamp(mainCamera.zoom * zoomFactor, MIN_ZOOM, MAX_ZOOM);
 		mainCamera.updateProjectionMatrix();
 	}
 
-	function resetMainView() {
+	export function resetMainView() {
 		if (!mainCamera || !pipControls || !pipCamera) return;
 		stageTarget.set(0, 0, 0);
 		mainCamera.zoom = 1;
@@ -630,7 +917,7 @@
 			dot.mesh.visible = false;
 			return;
 		}
-		dot.mesh.visible = true;
+		dot.mesh.visible = !smoothMeshView;
 		const normal = getViewNormal(dot.view);
 		const currentHeight = sampleHeight(dot.view, dot.u, dot.v);
 		dot.height = currentHeight;
@@ -644,12 +931,14 @@
 				refreshDotHeight(dot);
 			}
 		}
+		markSmoothSurfaceDirty();
 	}
 
 	function refreshAllDotHeights() {
 		for (const dot of strokeDots) {
 			refreshDotHeight(dot);
 		}
+		markSmoothSurfaceDirty();
 	}
 
 	function rebuildHeightMaps() {
@@ -661,6 +950,68 @@
 			if (dot.depositAmount <= 1e-6) continue;
 			depositHeight(dot.view, dot.u, dot.v, dot.depositRadius, dot.depositAmount);
 		}
+	}
+
+	function rebuildSmoothSurface() {
+		if (!smoothSurface) return;
+		smoothSurface.reset();
+		if (!smoothMeshView) {
+			smoothSurface.visible = false;
+			return;
+		}
+
+		const activeDots = strokeDots.filter((dot) => dot.depositAmount > 1e-6);
+		if (activeDots.length === 0) {
+			smoothSurface.visible = false;
+			return;
+		}
+
+		let minX = Infinity;
+		let minY = Infinity;
+		let minZ = Infinity;
+		let maxX = -Infinity;
+		let maxY = -Infinity;
+		let maxZ = -Infinity;
+
+		for (const dot of activeDots) {
+			const radius = dot.depositRadius + SMOOTH_MESH_PADDING;
+			minX = Math.min(minX, dot.position.x - radius);
+			minY = Math.min(minY, dot.position.y - radius);
+			minZ = Math.min(minZ, dot.position.z - radius);
+			maxX = Math.max(maxX, dot.position.x + radius);
+			maxY = Math.max(maxY, dot.position.y + radius);
+			maxZ = Math.max(maxZ, dot.position.z + radius);
+		}
+
+		const centerX = (minX + maxX) * 0.5;
+		const centerY = (minY + maxY) * 0.5;
+		const centerZ = (minZ + maxZ) * 0.5;
+		const spanX = Math.max(maxX - minX, SMOOTH_MESH_MIN_SPAN);
+		const spanY = Math.max(maxY - minY, SMOOTH_MESH_MIN_SPAN);
+		const spanZ = Math.max(maxZ - minZ, SMOOTH_MESH_MIN_SPAN);
+		const minBoundX = centerX - spanX * 0.5;
+		const minBoundY = centerY - spanY * 0.5;
+		const minBoundZ = centerZ - spanZ * 0.5;
+
+		smoothSurface.position.set(centerX, centerY, centerZ);
+		smoothSurface.scale.set(spanX, spanY, spanZ);
+
+		const step = Math.max(1, Math.ceil(activeDots.length / SMOOTH_MESH_MAX_BALLS));
+		const sampledBalls = Math.max(1, Math.ceil(activeDots.length / step));
+		const baseStrength = 1.2 / (((Math.sqrt(sampledBalls) - 1) / 4) + 1);
+		const radiusReference = Math.max(0.03, brushRadius * BRUSH_DEPOSIT_RADIUS_SCALE);
+
+		for (let i = 0; i < activeDots.length; i += step) {
+			const dot = activeDots[i];
+			const nx = THREE.MathUtils.clamp((dot.position.x - minBoundX) / spanX, 0.001, 0.999);
+			const ny = THREE.MathUtils.clamp((dot.position.y - minBoundY) / spanY, 0.001, 0.999);
+			const nz = THREE.MathUtils.clamp((dot.position.z - minBoundZ) / spanZ, 0.001, 0.999);
+			const radiusFactor = THREE.MathUtils.clamp(dot.depositRadius / radiusReference, 0.55, 1.8);
+			const strength = THREE.MathUtils.clamp(baseStrength * radiusFactor, 0.09, 1.35);
+			smoothSurface.addBall(nx, ny, nz, strength, SMOOTH_MESH_SUBTRACT);
+		}
+
+		smoothSurface.visible = true;
 	}
 
 	function pushBrushDot(point: THREE.Vector3, options?: { force?: boolean; stamp?: boolean }) {
@@ -715,7 +1066,7 @@
 		);
 		brushDot.position.copy(liftedPoint);
 		brushDot.scale.setScalar(toolRadius);
-		brushDot.visible = true;
+		brushDot.visible = !smoothMeshView;
 		activeStroke.add(brushDot);
 		strokeDots.push({
 			id: nextDotId(),
@@ -732,6 +1083,7 @@
 			strokeId
 		});
 		lastSurfacePoint = point.clone();
+		markSmoothSurfaceDirty();
 	}
 
 	function pushBrushDotWithMirror(point: THREE.Vector3, options?: { force?: boolean; stamp?: boolean }) {
@@ -855,6 +1207,7 @@
 				refreshDotHeight(dot);
 			}
 		}
+		markSmoothSurfaceDirty();
 	}
 
 	function resolveSegmentSteps(length: number) {
@@ -1033,13 +1386,14 @@
 
 			recordEraseChange(dot, beforeAmount, afterAmount);
 			dot.depositAmount = afterAmount;
-			dot.mesh.visible = afterAmount > 1e-6;
+			dot.mesh.visible = afterAmount > 1e-6 && !smoothMeshView;
 			changed = true;
 		}
 
 		if (changed) {
 			rebuildHeightMaps();
 			refreshAllDotHeights();
+			markSmoothSurfaceDirty();
 		}
 		lastEraseSurfacePoint = point.clone();
 		return changed;
@@ -1169,7 +1523,7 @@
 		activeStrokeTool = 'free-draw';
 	}
 
-	function undoLastStroke() {
+	export function undoLastStroke() {
 		const latest = actionHistory.pop();
 		if (!latest) return;
 
@@ -1191,14 +1545,15 @@
 				const dot = findDotById(change.dotId);
 				if (!dot) continue;
 				dot.depositAmount = change.beforeAmount;
-				dot.mesh.visible = change.beforeAmount > 1e-6;
+				dot.mesh.visible = change.beforeAmount > 1e-6 && !smoothMeshView;
 			}
 		}
 		rebuildHeightMaps();
 		refreshAllDotHeights();
+		markSmoothSurfaceDirty();
 	}
 
-	function clearAllStrokes() {
+	export function clearAllStrokes() {
 		while (actionHistory.length > 0) {
 			undoLastStroke();
 		}
@@ -1217,6 +1572,7 @@
 		}
 
 		if (event.button !== 0) return;
+		if (drawLocked) return;
 		const point = getWorldPoint(event);
 		if (!point) return;
 		isDrawing = true;
@@ -1246,9 +1602,7 @@
 		mainCamera.position.add(move);
 		mainCamera.lookAt(stageTarget);
 		syncDrawPlane();
-		guidePlane?.position.copy(stageTarget);
-		guideGrid?.position.copy(stageTarget);
-		guideAxes?.position.copy(stageTarget);
+		syncGuideAnchorsToSlice();
 
 		if (pipControls) {
 			pipControls.target.copy(stageTarget);
@@ -1311,11 +1665,18 @@
 		mainCamera.bottom = -ORTHO_HALF_HEIGHT;
 		mainCamera.updateProjectionMatrix();
 
-		const pipWidth = Math.max(180, Math.min(280, width * 0.3));
+		const pipMin = width < 700 ? 132 : showInternalChrome ? 200 : 220;
+		const pipMax = width < 700 ? 220 : 420;
+		const pipWidth = Math.max(pipMin, Math.min(pipMax, width * (showInternalChrome ? 0.34 : 0.4)));
 		const pipHeight = Math.round(pipWidth * 0.66);
+		pipViewportWidth = pipWidth;
+		pipViewportHeight = pipHeight;
 		pipRenderer.setSize(pipWidth, pipHeight, false);
 		pipCamera.aspect = pipWidth / pipHeight;
 		pipCamera.updateProjectionMatrix();
+		requestAnimationFrame(() => {
+			clampPipPosition(!pipMovedByUser);
+		});
 	}
 
 	function startRenderLoop() {
@@ -1334,6 +1695,10 @@
 				flowPauseSec = Math.max(0, flowPauseSec - dtSec);
 			} else if (!isDrawing) {
 				simulateViscousSand(dtSec);
+			}
+			if (smoothSurfaceDirty) {
+				rebuildSmoothSurface();
+				smoothSurfaceDirty = false;
 			}
 			pipControls?.update();
 			mainRendererRef.render(sceneRef, mainCameraRef);
@@ -1368,6 +1733,14 @@
 				}
 			}
 		}
+		disposePipSliceOverlay();
+		if (smoothSurface) {
+			scene?.remove(smoothSurface);
+			smoothSurface.geometry.dispose();
+			smoothSurface = null;
+		}
+		smoothSurfaceMaterial?.dispose();
+		smoothSurfaceMaterial = null;
 
 		unitSphere.dispose();
 		mainRenderer?.dispose();
@@ -1388,69 +1761,71 @@
 	});
 </script>
 
-<div class="stage-root">
-	<div class="stage-toolbar">
-		<div class="view-tabs" role="tablist" aria-label="Fixed camera angles">
-			{#each viewOrder as view}
-				<button
-					type="button"
-					class="view-btn {activeView === view ? 'active' : ''}"
-					on:click={() => updateMainView(view)}
-					role="tab"
-					aria-selected={activeView === view}
-				>
-					{VIEW_CONFIGS[view].label}
+<div class="stage-root {showInternalChrome ? '' : 'stage-root-minimal'}">
+	{#if showInternalChrome}
+		<div class="stage-toolbar">
+			<div class="view-tabs" role="tablist" aria-label="Fixed camera angles">
+				{#each viewOrder as view}
+					<button
+						type="button"
+						class="view-btn {activeView === view ? 'active' : ''}"
+						on:click={() => updateMainView(view)}
+						role="tab"
+						aria-selected={activeView === view}
+					>
+						{VIEW_CONFIGS[view].label}
+					</button>
+				{/each}
+			</div>
+			<div class="toolbar-right">
+				<div class="mode-toggle" aria-label="Input mode">
+					<button
+						type="button"
+						class="toolbar-btn mode-btn {inputMode === 'draw' ? 'mode-active' : ''}"
+						on:click={() => setInputMode('draw')}
+					>
+						Draw
+					</button>
+					<button
+						type="button"
+						class="toolbar-btn mode-btn {inputMode === 'pan' ? 'mode-active' : ''}"
+						on:click={() => setInputMode('pan')}
+					>
+						Pan
+					</button>
+				</div>
+				<span class="lock-chip">{cameraLock ? 'Locked Camera (Default)' : 'Free Camera'}</span>
+				<button type="button" class="toolbar-btn" on:click={() => zoomMain(1.15)}>Zoom +</button>
+				<button type="button" class="toolbar-btn" on:click={() => zoomMain(0.87)}>Zoom -</button>
+				<button type="button" class="toolbar-btn desktop-only-control" on:click={resetMainView}>
+					Reset View
 				</button>
-			{/each}
-		</div>
-		<div class="toolbar-right">
-			<div class="mode-toggle" aria-label="Input mode">
-				<button
-					type="button"
-					class="toolbar-btn mode-btn {inputMode === 'draw' ? 'mode-active' : ''}"
-					on:click={() => setInputMode('draw')}
-				>
-					Draw
-				</button>
-				<button
-					type="button"
-					class="toolbar-btn mode-btn {inputMode === 'pan' ? 'mode-active' : ''}"
-					on:click={() => setInputMode('pan')}
-				>
-					Pan
+				<button type="button" class="toolbar-btn" on:click={undoLastStroke}>Undo Stroke</button>
+				<button type="button" class="toolbar-btn desktop-only-control" on:click={clearAllStrokes}>
+					Clear
 				</button>
 			</div>
-			<span class="lock-chip">{cameraLock ? 'Locked Camera (Default)' : 'Free Camera'}</span>
-			<button type="button" class="toolbar-btn" on:click={() => zoomMain(1.15)}>Zoom +</button>
-			<button type="button" class="toolbar-btn" on:click={() => zoomMain(0.87)}>Zoom -</button>
-			<button type="button" class="toolbar-btn desktop-only-control" on:click={resetMainView}>
-				Reset View
-			</button>
-			<button type="button" class="toolbar-btn" on:click={undoLastStroke}>Undo Stroke</button>
-			<button type="button" class="toolbar-btn desktop-only-control" on:click={clearAllStrokes}>
-				Clear
-			</button>
 		</div>
-	</div>
 
-	<div class="mobile-quick" aria-label="모바일 퀵 브러시 패널">
-		<div class="mobile-size-wrap">
-			<span>Size {Math.round(brushSize)}</span>
-			<input class="mobile-size" type="range" min="1" max="60" bind:value={brushSize} />
+		<div class="mobile-quick" aria-label="모바일 퀵 브러시 패널">
+			<div class="mobile-size-wrap">
+				<span>Size {Math.round(brushSize)}</span>
+				<input class="mobile-size" type="range" min="1" max="60" bind:value={brushSize} />
+			</div>
+			<div class="mobile-color-wrap">
+				{#each quickPalette as color}
+					<button
+						type="button"
+						class="mobile-swatch {brushColorHex === color ? 'active' : ''}"
+						style={`--swatch:${color};`}
+						on:click={() => (brushColorHex = color)}
+						aria-label={`색상 ${color}`}
+					></button>
+				{/each}
+				<input class="mobile-color-input" type="color" bind:value={brushColorHex} aria-label="커스텀 색상" />
+			</div>
 		</div>
-		<div class="mobile-color-wrap">
-			{#each quickPalette as color}
-				<button
-					type="button"
-					class="mobile-swatch {brushColorHex === color ? 'active' : ''}"
-					style={`--swatch:${color};`}
-					on:click={() => (brushColorHex = color)}
-					aria-label={`색상 ${color}`}
-				></button>
-			{/each}
-			<input class="mobile-color-input" type="color" bind:value={brushColorHex} aria-label="커스텀 색상" />
-		</div>
-	</div>
+	{/if}
 
 	<div class="main-wrap" bind:this={mainWrap}>
 		<canvas
@@ -1464,26 +1839,51 @@
 			on:contextmenu|preventDefault
 		></canvas>
 
-		<div class="pip-wrap">
-			<canvas class="pip-canvas" bind:this={pipCanvas}></canvas>
+		<div
+			class="pip-wrap {pipDragging ? 'dragging' : ''}"
+			bind:this={pipWrap}
+			style={`left:${pipPosX}px;top:${pipPosY}px;`}
+		>
+			<button
+				type="button"
+				class="pip-drag-handle"
+				aria-label="Move PIP"
+				on:pointerdown={startPipDrag}
+				on:pointermove={movePipDrag}
+				on:pointerup={endPipDrag}
+				on:pointercancel={endPipDrag}
+			>
+				⋮⋮
+			</button>
+			<canvas
+				class="pip-canvas"
+				bind:this={pipCanvas}
+				style={`width:${pipViewportWidth}px;height:${pipViewportHeight}px;`}
+			></canvas>
 			<button type="button" class="pip-mini-reset" on:click={resetQuarterView} aria-label="PIP reset">
 				↺
 			</button>
 		</div>
 
-			<p class="stage-help">
-				{#if isCoarsePointer}
-					{inputMode === 'draw'
-						? `${drawTool === 'fill' ? 'Fill' : drawTool === 'erase' ? 'Erase' : 'Draw'} 모드에서 터치 드로잉`
-						: 'Pan 모드에서 터치 이동'} · {autoFillClosedStroke
-						? '닫힌 선 자동 면채움 ON'
-						: '드래그 경로 수동 채움'} · {mirrorDraw ? '좌우 대칭 ON' : '단일 드로우'}
-				{:else}
-					좌클릭 {drawTool === 'fill' ? 'Fill' : drawTool === 'erase' ? 'Erase' : 'Draw'} · 우클릭 팬 · 휠 줌 · {autoFillClosedStroke
-						? '닫힌 선 자동 면채움 ON'
-						: '드래그 경로 수동 채움'} · {mirrorDraw ? '좌우 대칭 ON' : '단일 드로우'}
-				{/if}
-			</p>
+			{#if showInternalChrome}
+				<p class="stage-help">
+					{#if isCoarsePointer}
+						{inputMode === 'draw'
+							? `${drawTool === 'fill' ? 'Fill' : drawTool === 'erase' ? 'Erase' : 'Draw'} 모드에서 터치 드로잉`
+							: 'Pan 모드에서 터치 이동'} · {autoFillClosedStroke
+							? '닫힌 선 자동 면채움 ON'
+							: '드래그 경로 수동 채움'} · {mirrorDraw ? '좌우 대칭 ON' : '단일 드로우'} · {smoothMeshView
+							? '스무딩 메시 ON'
+							: '도트 표현 ON'} · {sliceEnabled ? `슬라이스 ${sliceDepth.toFixed(2)}` : '슬라이스 OFF'}
+					{:else}
+						좌클릭 {drawTool === 'fill' ? 'Fill' : drawTool === 'erase' ? 'Erase' : 'Draw'} · 우클릭 팬 · 휠 줌 · {autoFillClosedStroke
+							? '닫힌 선 자동 면채움 ON'
+							: '드래그 경로 수동 채움'} · {mirrorDraw ? '좌우 대칭 ON' : '단일 드로우'} · {smoothMeshView
+							? '스무딩 메시 ON'
+							: '도트 표현 ON'} · {sliceEnabled ? `슬라이스 ${sliceDepth.toFixed(2)}` : '슬라이스 OFF'}
+					{/if}
+				</p>
+			{/if}
 	</div>
 </div>
 
@@ -1494,6 +1894,41 @@
 		display: grid;
 		grid-template-rows: auto 1fr;
 		gap: 10px;
+	}
+
+	.stage-root-minimal {
+		grid-template-rows: 1fr;
+		gap: 0;
+	}
+
+	.stage-root-minimal .main-wrap {
+		min-height: 100%;
+		border: none;
+		border-radius: 0;
+	}
+
+	.stage-root-minimal .pip-wrap {
+		padding: 2px;
+		border-radius: 6px;
+		border: none;
+		background: rgba(20, 24, 33, 0.24);
+		backdrop-filter: blur(2px);
+		box-shadow: none;
+	}
+
+	.stage-root-minimal .pip-canvas {
+		width: 176px;
+		height: 116px;
+		border-radius: 5px;
+	}
+
+	.stage-root-minimal .pip-mini-reset {
+		top: 2px;
+		right: 2px;
+		width: 18px;
+		height: 18px;
+		background: rgba(245, 248, 255, 0.78);
+		font-size: 0.68rem;
 	}
 
 	.stage-toolbar {
@@ -1629,18 +2064,39 @@
 	.pip-wrap {
 		position: absolute;
 		top: 12px;
-		right: 12px;
+		left: 12px;
 		padding: 4px;
 		border-radius: 8px;
 		border: 1px solid rgba(199, 210, 254, 0.6);
 		background: rgba(255, 255, 255, 0.65);
 		backdrop-filter: blur(3px);
 		box-shadow: 0 3px 10px rgba(15, 23, 42, 0.09);
+		touch-action: none;
+		user-select: none;
+	}
+
+	.pip-wrap.dragging {
+		cursor: grabbing;
+	}
+
+	.pip-drag-handle {
+		position: absolute;
+		top: 4px;
+		left: 4px;
+		width: 22px;
+		height: 22px;
+		border: none;
+		border-radius: 999px;
+		background: rgba(255, 255, 255, 0.82);
+		color: #334155;
+		font-size: 0.64rem;
+		font-weight: 700;
+		line-height: 1;
+		cursor: grab;
+		z-index: 2;
 	}
 
 	.pip-canvas {
-		width: 220px;
-		height: 145px;
 		border-radius: 6px;
 		display: block;
 	}
@@ -1723,28 +2179,12 @@
 			box-shadow: none;
 		}
 
-		.pip-canvas {
-			width: 132px;
-			height: 88px;
-		}
-
 		.stage-help {
 			display: none;
 		}
 	}
 
 	@media (max-width: 640px) {
-		.pip-wrap {
-			top: auto;
-			bottom: 8px;
-			right: 8px;
-		}
-
-		.pip-canvas {
-			width: 112px;
-			height: 74px;
-		}
-
 		.main-wrap {
 			min-height: 70vh;
 		}
@@ -1752,5 +2192,6 @@
 		.pip-mini-reset {
 			display: none;
 		}
+
 	}
 </style>
