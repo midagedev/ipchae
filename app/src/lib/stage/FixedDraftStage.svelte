@@ -113,6 +113,8 @@
 	let lastSurfacePoint: THREE.Vector3 | null = null;
 	const strokeInputPoints: THREE.Vector3[] = [];
 	let lastSmoothedPoint: THREE.Vector3 | null = null;
+	let strokeSupportMap: Map<string, number> | null = null;
+	let strokeSupportView: ViewId | null = null;
 	let isDrawing = false;
 	let isPanning = false;
 	let panStartX = 0;
@@ -292,6 +294,8 @@
 		activeStroke.userData.strokeId = strokeId;
 		strokeRoot.add(activeStroke);
 		strokeHistory.push(activeStroke);
+		strokeSupportView = activeView;
+		strokeSupportMap = new Map(stackHeightMaps[activeView]);
 		lastSurfacePoint = null;
 		strokeInputPoints.length = 0;
 		strokeInputPoints.push(point.clone());
@@ -314,8 +318,7 @@
 		};
 	}
 
-	function sampleHeight(view: ViewId, u: number, v: number) {
-		const map = stackHeightMaps[view];
+	function sampleHeightFromMap(map: Map<string, number>, u: number, v: number) {
 		const gx = u / STACK_CELL_SIZE;
 		const gy = v / STACK_CELL_SIZE;
 		const i0 = Math.floor(gx);
@@ -333,6 +336,17 @@
 		const hx0 = h00 * (1 - tx) + h10 * tx;
 		const hx1 = h01 * (1 - tx) + h11 * tx;
 		return hx0 * (1 - ty) + hx1 * ty;
+	}
+
+	function sampleHeight(view: ViewId, u: number, v: number) {
+		return sampleHeightFromMap(stackHeightMaps[view], u, v);
+	}
+
+	function sampleStrokeSupportHeight(view: ViewId, u: number, v: number) {
+		if (strokeSupportMap && strokeSupportView === view) {
+			return sampleHeightFromMap(strokeSupportMap, u, v);
+		}
+		return sampleHeight(view, u, v);
 	}
 
 	function sampleTopFromExistingDots(basePoint: THREE.Vector3, normal: THREE.Vector3, excludeStrokeId?: string) {
@@ -456,14 +470,16 @@
 		const depositRadius = brushRadius * 1.1;
 		const depositAmount = layerStep * 0.9;
 		const activeStrokeId = String(activeStroke.userData.strokeId ?? activeStroke.name);
-		const baseFromMap = sampleHeight(activeView, u, v);
+		const baseFromMap = sampleStrokeSupportHeight(activeView, u, v);
 		const baseFromExistingDots = sampleTopFromExistingDots(point, activeNormal, activeStrokeId);
+		const supportHeight = Math.max(baseFromMap, baseFromExistingDots);
+		const currentMapHeight = sampleHeight(activeView, u, v);
 
-		if (baseFromExistingDots > baseFromMap) {
-			raiseBaseline(activeView, u, v, baseFromExistingDots, depositRadius);
+		if (supportHeight > currentMapHeight) {
+			raiseBaseline(activeView, u, v, supportHeight, depositRadius);
 		}
 		depositHeight(activeView, u, v, depositRadius, depositAmount);
-		const dotHeight = sampleHeight(activeView, u, v);
+		const dotHeight = supportHeight + depositAmount;
 		const liftedPoint = point.clone().addScaledVector(activeNormal, dotHeight);
 		const strokeId = activeStrokeId;
 
@@ -491,7 +507,6 @@
 			view: activeView,
 			strokeId
 		});
-		refreshHeightsForView(activeView);
 		lastSurfacePoint = point.clone();
 	}
 
@@ -561,6 +576,8 @@
 		lastSurfacePoint = null;
 		strokeInputPoints.length = 0;
 		lastSmoothedPoint = null;
+		strokeSupportMap = null;
+		strokeSupportView = null;
 	}
 
 	function undoLastStroke() {
