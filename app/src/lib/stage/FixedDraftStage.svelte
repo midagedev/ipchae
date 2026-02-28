@@ -109,6 +109,10 @@
 
 	let activeStroke: THREE.Group | null = null;
 	let lastSurfacePoint: THREE.Vector3 | null = null;
+	let drawTargetPoint: THREE.Vector3 | null = null;
+	let lastEmitPoint: THREE.Vector3 | null = null;
+	let lastEmitAtMs = 0;
+	let emitAccumulatorMs = 0;
 	let isDrawing = false;
 	let isPanning = false;
 	let panStartX = 0;
@@ -118,6 +122,8 @@
 	const MIN_ZOOM = 0.55;
 	const MAX_ZOOM = 6;
 	const STACK_CELL_SIZE = 0.1;
+	const EMIT_INTERVAL_MS = 40;
+	const SPEED_REF_UNITS_PER_SEC = 8;
 
 	$: brushRadius = 0.02 + (Math.max(1, Math.min(brushSize, 60)) / 60) * 0.18;
 	$: brushOpacity = THREE.MathUtils.clamp(0.22 + brushStrength * 0.78, 0.22, 1);
@@ -381,14 +387,18 @@
 		}
 	}
 
-	function pushBrushDot(point: THREE.Vector3) {
+	function pushBrushDot(point: THREE.Vector3, options?: { force?: boolean; amountScale?: number }) {
 		if (!activeStroke) return;
-		if (lastSurfacePoint && lastSurfacePoint.distanceToSquared(point) < brushRadius * brushRadius * 0.45) {
+		const force = options?.force ?? false;
+		const amountScale = THREE.MathUtils.clamp(options?.amountScale ?? 1, 0.05, 2);
+		const minSpacing = brushRadius * 0.28;
+		if (!force && lastSurfacePoint && lastSurfacePoint.distanceToSquared(point) < minSpacing * minSpacing) {
 			return;
 		}
 
 		const { u, v } = projectToActiveUV(point);
-		const layerStep = brushRadius * THREE.MathUtils.clamp(0.26 + brushStrength * 0.92, 0.26, 1.35);
+		const layerStep =
+			brushRadius * THREE.MathUtils.clamp(0.26 + brushStrength * 0.92, 0.26, 1.35) * amountScale;
 		const depositRadius = brushRadius * 1.1;
 		const depositAmount = layerStep * 0.9;
 		depositHeight(activeView, u, v, depositRadius, depositAmount);
@@ -426,9 +436,47 @@
 		lastSurfacePoint = point.clone();
 	}
 
+	function updateContinuousDeposit(timestampMs: number) {
+		if (!isDrawing || !drawTargetPoint) return;
+		if (!activeStroke) return;
+
+		if (!lastEmitAtMs) {
+			lastEmitAtMs = timestampMs;
+		}
+
+		const deltaMs = Math.max(0, timestampMs - lastEmitAtMs);
+		lastEmitAtMs = timestampMs;
+		emitAccumulatorMs += deltaMs;
+		if (emitAccumulatorMs < EMIT_INTERVAL_MS) return;
+
+		const target = drawTargetPoint.clone();
+		const from = (lastEmitPoint ?? target).clone();
+		const distance = from.distanceTo(target);
+		const speed = distance / (EMIT_INTERVAL_MS / 1000);
+		const speedNorm = THREE.MathUtils.clamp(speed / SPEED_REF_UNITS_PER_SEC, 0, 1);
+		const speedFactor = THREE.MathUtils.lerp(1.2, 0.28, speedNorm);
+
+		const steps = Math.max(1, Math.ceil(distance / Math.max(brushRadius * 0.6, 0.03)));
+		const amountPerStep = speedFactor / steps;
+
+		while (emitAccumulatorMs >= EMIT_INTERVAL_MS) {
+			emitAccumulatorMs -= EMIT_INTERVAL_MS;
+			for (let step = 1; step <= steps; step += 1) {
+				const t = step / steps;
+				const point = from.clone().lerp(target, t);
+				pushBrushDot(point, { force: true, amountScale: amountPerStep });
+			}
+			lastEmitPoint = target.clone();
+		}
+	}
+
 	function finishStroke() {
 		activeStroke = null;
 		lastSurfacePoint = null;
+		drawTargetPoint = null;
+		lastEmitPoint = null;
+		lastEmitAtMs = 0;
+		emitAccumulatorMs = 0;
 	}
 
 	function undoLastStroke() {
@@ -474,6 +522,10 @@
 		const point = getWorldPoint(event);
 		if (!point) return;
 		isDrawing = true;
+		drawTargetPoint = point.clone();
+		lastEmitPoint = point.clone();
+		lastEmitAtMs = performance.now();
+		emitAccumulatorMs = 0;
 		startStroke(point);
 		mainCanvas.setPointerCapture(event.pointerId);
 	}
@@ -515,7 +567,7 @@
 		if (!isDrawing || !cameraLock) return;
 		const point = getWorldPoint(event);
 		if (!point) return;
-		pushBrushDot(point);
+		drawTargetPoint = point.clone();
 	}
 
 	function onPointerEnd(event: PointerEvent) {
@@ -562,13 +614,14 @@
 		const mainCameraRef = mainCamera;
 		const pipCameraRef = pipCamera;
 
-		const render = () => {
+		const render = (timestampMs: number) => {
+			updateContinuousDeposit(timestampMs);
 			pipControls?.update();
 			mainRendererRef.render(sceneRef, mainCameraRef);
 			pipRendererRef.render(sceneRef, pipCameraRef);
 			animationFrame = requestAnimationFrame(render);
 		};
-		render();
+		animationFrame = requestAnimationFrame(render);
 	}
 
 	function stopRenderLoop() {
@@ -665,13 +718,13 @@
 			<canvas class="pip-canvas" bind:this={pipCanvas}></canvas>
 		</div>
 
-		<p class="stage-help">
-			{#if isCoarsePointer}
-				{inputMode === 'draw' ? 'Draw 모드에서 터치 드로잉' : 'Pan 모드에서 터치 이동'} · Zoom +/- 버튼 사용
-			{:else}
-				좌클릭 드로잉 · 우클릭 팬 · 휠 줌 · 겹쳐 그리면 높이 적층
-			{/if}
-		</p>
+			<p class="stage-help">
+				{#if isCoarsePointer}
+					{inputMode === 'draw' ? 'Draw 모드에서 터치 드로잉' : 'Pan 모드에서 터치 이동'} · Zoom +/- 버튼 사용
+				{:else}
+					좌클릭 드로잉 · 우클릭 팬 · 휠 줌 · 천천히 그리면 더 높게 적층
+				{/if}
+			</p>
 	</div>
 </div>
 
