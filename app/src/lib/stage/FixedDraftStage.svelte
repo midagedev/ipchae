@@ -94,6 +94,7 @@
 	const raycaster = new THREE.Raycaster();
 	const pointer = new THREE.Vector2();
 	const stageTarget = new THREE.Vector3(0, 0, 0);
+	const tmpSampleDelta = new THREE.Vector3();
 
 	const strokeRoot = new THREE.Group();
 	const strokeHistory: THREE.Group[] = [];
@@ -327,6 +328,26 @@
 		return hx0 * (1 - ty) + hx1 * ty;
 	}
 
+	function sampleTopFromDots(basePoint: THREE.Vector3, normal: THREE.Vector3, excludeStrokeId?: string) {
+		let maxHeight = 0;
+		for (const dot of strokeDots) {
+			if (excludeStrokeId && dot.strokeId === excludeStrokeId) continue;
+
+			tmpSampleDelta.subVectors(dot.position, basePoint);
+			const along = tmpSampleDelta.dot(normal);
+			const radialSq = Math.max(0, tmpSampleDelta.lengthSq() - along * along);
+			const radiusSq = dot.radius * dot.radius;
+			if (radialSq > radiusSq) continue;
+
+			const cap = Math.sqrt(Math.max(0, radiusSq - radialSq));
+			const candidate = along + cap;
+			if (candidate > maxHeight) {
+				maxHeight = candidate;
+			}
+		}
+		return maxHeight;
+	}
+
 	function depositHeight(view: ViewId, u: number, v: number, depositRadius: number, depositAmount: number) {
 		const map = stackHeightMaps[view];
 		const centerI = toCell(u);
@@ -348,6 +369,34 @@
 				const key = cellKey(ix, iy);
 				const prev = map.get(key) ?? 0;
 				map.set(key, prev + candidate);
+			}
+		}
+	}
+
+	function raiseBaseline(view: ViewId, u: number, v: number, baselineHeight: number, radius: number) {
+		if (baselineHeight <= 0) return;
+
+		const map = stackHeightMaps[view];
+		const centerI = toCell(u);
+		const centerJ = toCell(v);
+		const range = Math.ceil(radius / STACK_CELL_SIZE) + 1;
+
+		for (let di = -range; di <= range; di += 1) {
+			for (let dj = -range; dj <= range; dj += 1) {
+				const ix = centerI + di;
+				const iy = centerJ + dj;
+				const sampleU = ix * STACK_CELL_SIZE;
+				const sampleV = iy * STACK_CELL_SIZE;
+				const distance = Math.hypot(sampleU - u, sampleV - v);
+				if (distance > radius) continue;
+
+				const falloff = 1 - distance / radius;
+				const candidate = baselineHeight * (0.78 + 0.22 * falloff);
+				const key = cellKey(ix, iy);
+				const prev = map.get(key) ?? 0;
+				if (candidate > prev) {
+					map.set(key, candidate);
+				}
 			}
 		}
 	}
@@ -401,10 +450,16 @@
 			brushRadius * THREE.MathUtils.clamp(0.26 + brushStrength * 0.92, 0.26, 1.35) * amountScale;
 		const depositRadius = brushRadius * 1.1;
 		const depositAmount = layerStep * 0.9;
+		const activeStrokeId = String(activeStroke.userData.strokeId ?? activeStroke.name);
+		const baseFromMap = sampleHeight(activeView, u, v);
+		const baseFromDots = sampleTopFromDots(point, activeNormal, activeStrokeId);
+		const baseHeight = Math.max(baseFromMap, baseFromDots);
+
+		raiseBaseline(activeView, u, v, baseHeight, depositRadius);
 		depositHeight(activeView, u, v, depositRadius, depositAmount);
 		const dotHeight = sampleHeight(activeView, u, v);
 		const liftedPoint = point.clone().addScaledVector(activeNormal, dotHeight);
-		const strokeId = String(activeStroke.userData.strokeId ?? activeStroke.name);
+		const strokeId = activeStrokeId;
 
 		const brushDot: BrushDotMesh = new THREE.Mesh(
 			unitSphere,
