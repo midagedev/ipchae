@@ -1,0 +1,42 @@
+name: IPCHAE Service CI
+
+on:
+  push:
+    paths:
+      - "ipchae-service/**"
+      - ".github/workflows/ipchae-service-ci.yml"
+  pull_request:
+    paths:
+      - "ipchae-service/**"
+      - ".github/workflows/ipchae-service-ci.yml"
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ipchae-service
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.0
+          cache: npm
+          cache-dependency-path: ipchae-service/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Type Check
+        run: npm run check
+
+      - name: Unit Test
+        run: npm run test
+
+      - name: Build
+        run: npm run build
+
