@@ -290,7 +290,7 @@
 	}
 
 	function syncDotVisibilityByRenderMode() {
-		const showDots = !smoothMeshView;
+		const showDots = true;
 		for (const dot of strokeDots) {
 			dot.mesh.visible = dot.depositAmount > 1e-6 && showDots;
 		}
@@ -917,7 +917,7 @@
 			dot.mesh.visible = false;
 			return;
 		}
-		dot.mesh.visible = !smoothMeshView;
+		dot.mesh.visible = true;
 		const normal = getViewNormal(dot.view);
 		const currentHeight = sampleHeight(dot.view, dot.u, dot.v);
 		dot.height = currentHeight;
@@ -1066,7 +1066,7 @@
 		);
 		brushDot.position.copy(liftedPoint);
 		brushDot.scale.setScalar(toolRadius);
-		brushDot.visible = !smoothMeshView;
+		brushDot.visible = true;
 		activeStroke.add(brushDot);
 		strokeDots.push({
 			id: nextDotId(),
@@ -1386,7 +1386,7 @@
 
 			recordEraseChange(dot, beforeAmount, afterAmount);
 			dot.depositAmount = afterAmount;
-			dot.mesh.visible = afterAmount > 1e-6 && !smoothMeshView;
+			dot.mesh.visible = afterAmount > 1e-6;
 			changed = true;
 		}
 
@@ -1545,7 +1545,7 @@
 				const dot = findDotById(change.dotId);
 				if (!dot) continue;
 				dot.depositAmount = change.beforeAmount;
-				dot.mesh.visible = change.beforeAmount > 1e-6 && !smoothMeshView;
+				dot.mesh.visible = change.beforeAmount > 1e-6;
 			}
 		}
 		rebuildHeightMaps();

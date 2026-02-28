@@ -118,8 +118,8 @@
 	$: activeSliceLayer = sliceLayers.find((layer) => layer.id === activeSliceLayerId) ?? null;
 	$: activeSliceAxis = activeSliceLayer?.axis ?? 'z';
 	$: activeSliceDepth = activeSliceLayer?.depth ?? 0;
-	$: activeLayerBlocked = sliceEnabled && (!activeSliceLayer?.visible || Boolean(activeSliceLayer?.locked));
-	$: stageSliceEnabled = Boolean(sliceEnabled && activeSliceLayer);
+	$: activeLayerBlocked = sliceEnabled && Boolean(activeSliceLayer?.locked);
+	$: stageSliceEnabled = Boolean(sliceEnabled && activeSliceLayer && activeSliceLayer.visible);
 	$: stageSliceOverlays = sliceLayers.map((layer) => ({
 		id: layer.id,
 		axis: layer.axis,
