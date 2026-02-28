@@ -12,7 +12,7 @@
 		StudioSnapshotV1,
 		ViewId
 	} from '$lib/core/contracts/studio';
-	import type { DraftSummary } from '$lib/core/contracts/editor-stage';
+	import type { DraftSummary, EditorStageHandle } from '$lib/core/contracts/editor-stage';
 	import {
 		loadStarterCatalog,
 		type StarterCatalog,
@@ -102,7 +102,7 @@
 	type StageComponentType = typeof FixedDraftStageComponent;
 
 	let StageComponent: StageComponentType | null = null;
-	let stageRef: any = null;
+	let stageRef: EditorStageHandle | null = null;
 	let beginnerMode = true;
 	let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
 	let hydrationDone = false;
@@ -122,6 +122,8 @@
 	let exportStatus = '';
 	let partSaveStatus = '';
 	let shareStatus = '';
+	let editActionStatus = '';
+	let selectedStrokeId: string | null = null;
 
 	let brushSize = 20;
 	let brushStrength = 0.28;
@@ -235,6 +237,9 @@
 	$: validationSummaryLabel = validationReport
 		? `${validationReport.errors.length} errors / ${validationReport.warnings.length} warnings`
 		: 'not validated';
+	$: selectedStrokeLabel = selectedStrokeId ? selectedStrokeId : '없음';
+	$: sliceLabel = stageSliceEnabled ? `${activeSliceAxis.toUpperCase()} ${activeSliceDepth.toFixed(2)}` : 'OFF';
+	$: editContextLabel = `선택 ${selectedStrokeLabel} · Slice ${sliceLabel}${activeLayerBlocked ? ' · Layer Locked/Hidden' : ''}`;
 	$: autosaveSignal = [
 		page.params.projectId,
 		startMode,
@@ -505,6 +510,18 @@
 		return summary as DraftSummary;
 	}
 
+	function syncSelectedStrokeId() {
+		selectedStrokeId = stageRef?.getSelectedStrokeId?.() ?? null;
+	}
+
+	function onStageSelectionChange(event: CustomEvent<{ strokeId: string | null }>) {
+		selectedStrokeId = event.detail.strokeId;
+	}
+
+	function blockedEditMessage() {
+		return '활성 Slice Layer가 숨김/잠금 상태라 편집할 수 없습니다.';
+	}
+
 	function runValidation() {
 		const summary = readDraftSummary();
 		if (!summary) {
@@ -585,6 +602,121 @@
 			shareStatus = `Share created: ${shareUrl}`;
 		}
 	}
+
+	function undoLastStroke() {
+		stageRef?.undoLastStroke?.();
+		syncSelectedStrokeId();
+	}
+
+	function clearAllStrokes() {
+		stageRef?.clearAllStrokes?.();
+		syncSelectedStrokeId();
+		editActionStatus = '전체 스트로크 삭제';
+	}
+
+	function selectLastStroke() {
+		const ok = stageRef?.selectLastStroke?.();
+		editActionStatus = ok ? '최근 스트로크 선택' : '선택할 스트로크가 없습니다.';
+		syncSelectedStrokeId();
+	}
+
+	function copySelectedStroke() {
+		const ok = stageRef?.copySelectedStroke?.();
+		editActionStatus = ok ? '선택 복사 완료 (Ctrl/Cmd+C)' : '선택된 스트로크가 없습니다.';
+		syncSelectedStrokeId();
+	}
+
+	function pasteStroke() {
+		if (activeLayerBlocked) {
+			editActionStatus = blockedEditMessage();
+			return;
+		}
+		const ok = stageRef?.pasteCopiedStroke?.();
+		editActionStatus = ok ? '붙여넣기 완료 (Ctrl/Cmd+V)' : '클립보드가 비어 있습니다.';
+		syncSelectedStrokeId();
+	}
+
+	function cutSelectedStroke() {
+		if (activeLayerBlocked) {
+			editActionStatus = blockedEditMessage();
+			return;
+		}
+		const ok = stageRef?.cutSelectedStroke?.();
+		editActionStatus = ok ? '잘라내기 완료 (Ctrl/Cmd+X)' : '선택된 스트로크가 없습니다.';
+		syncSelectedStrokeId();
+	}
+
+	function duplicateSelectedStroke() {
+		if (activeLayerBlocked) {
+			editActionStatus = blockedEditMessage();
+			return;
+		}
+		const ok = stageRef?.duplicateSelectedStroke?.();
+		editActionStatus = ok ? '복제 완료 (Ctrl/Cmd+D)' : '선택된 스트로크가 없습니다.';
+		syncSelectedStrokeId();
+	}
+
+	function deleteSelectedStroke() {
+		if (activeLayerBlocked) {
+			editActionStatus = blockedEditMessage();
+			return;
+		}
+		const ok = stageRef?.deleteSelectedStroke?.();
+		editActionStatus = ok ? '삭제 완료 (Delete/Backspace)' : '선택된 스트로크가 없습니다.';
+		syncSelectedStrokeId();
+	}
+
+	function clearStrokeSelection() {
+		stageRef?.clearStrokeSelection?.();
+		editActionStatus = '선택 해제';
+		syncSelectedStrokeId();
+	}
+
+	function nudgeSelection(deltaU: number, deltaV: number, deltaN = 0) {
+		if (activeLayerBlocked) {
+			editActionStatus = blockedEditMessage();
+			return;
+		}
+		const ok = stageRef?.nudgeSelectedStroke?.(deltaU, deltaV, deltaN);
+		editActionStatus = ok
+			? `이동 (${deltaU.toFixed(2)}, ${deltaV.toFixed(2)}, ${deltaN.toFixed(2)})`
+			: '선택된 스트로크가 없습니다.';
+		syncSelectedStrokeId();
+	}
+
+	function scaleSelection(scaleFactor: number) {
+		if (activeLayerBlocked) {
+			editActionStatus = blockedEditMessage();
+			return;
+		}
+		const ok = stageRef?.scaleSelectedStroke?.(scaleFactor);
+		editActionStatus = ok ? `스케일 x${scaleFactor.toFixed(2)}` : '선택된 스트로크가 없습니다.';
+		syncSelectedStrokeId();
+	}
+
+	function rotateSelection(degrees: number) {
+		if (activeLayerBlocked) {
+			editActionStatus = blockedEditMessage();
+			return;
+		}
+		const ok = stageRef?.rotateSelectedStroke?.(degrees);
+		editActionStatus = ok ? `회전 ${degrees > 0 ? '+' : ''}${degrees}°` : '선택된 스트로크가 없습니다.';
+		syncSelectedStrokeId();
+	}
+
+	function sliceCutSelection() {
+		if (activeLayerBlocked) {
+			editActionStatus = blockedEditMessage();
+			return;
+		}
+		const ok = stageRef?.sliceCutSelectedStroke?.();
+		editActionStatus = ok
+			? '슬라이스 컷 적용'
+			: sliceEnabled
+				? '컷팅 결과가 없습니다. 슬라이스 위치를 조정하세요.'
+				: '슬라이스 모드를 켜야 컷팅할 수 있습니다.';
+		syncSelectedStrokeId();
+	}
 </script>
 
 <sp-theme class="studio-theme" system="spectrum-two" color="dark" scale="large">
@@ -618,8 +750,8 @@
 				{#if !beginnerMode}
 					<button type="button" class="app-btn" on:click={triggerImport}>Import</button>
 				{/if}
-				<button type="button" class="app-btn" on:click={() => stageRef?.undoLastStroke?.()}>실행취소</button>
-				<button type="button" class="app-btn" on:click={() => stageRef?.clearAllStrokes?.()}>지우기</button>
+				<button type="button" class="app-btn" on:click={undoLastStroke}>실행취소</button>
+				<button type="button" class="app-btn" on:click={clearAllStrokes}>지우기</button>
 				{#if !beginnerMode}
 					<button type="button" class="app-btn" on:click={zoomOut}>-</button>
 					<button type="button" class="app-btn" on:click={zoomIn}>+</button>
@@ -639,6 +771,7 @@
 						<svelte:component
 							this={StageComponent}
 							bind:this={stageRef}
+							on:selectionchange={onStageSelectionChange}
 							bind:brushSize
 							bind:brushStrength
 							bind:brushColorHex
@@ -650,6 +783,7 @@
 							sliceDepth={activeSliceDepth}
 							sliceLayerOverlays={stageSliceOverlays}
 							drawLocked={activeLayerBlocked}
+							editLocked={activeLayerBlocked}
 							{drawTool}
 							showInternalChrome={false}
 						/>
@@ -862,6 +996,35 @@
 							</button>
 					{/each}
 				</div>
+				<div class="mini-block edit-block">
+					<p class="mini-title">{beginnerMode ? '선택/복제' : 'Edit Actions'}</p>
+					<div class="edit-actions {beginnerMode ? 'beginner' : ''}">
+						<button type="button" class="tool-btn" on:click={selectLastStroke}>Select</button>
+						<button type="button" class="tool-btn" on:click={duplicateSelectedStroke}>Duplicate</button>
+						<button type="button" class="tool-btn" on:click={copySelectedStroke}>Copy</button>
+						<button type="button" class="tool-btn" on:click={pasteStroke}>Paste</button>
+						{#if !beginnerMode}
+							<button type="button" class="tool-btn" on:click={cutSelectedStroke}>Cut</button>
+							<button type="button" class="tool-btn" on:click={deleteSelectedStroke}>Delete</button>
+							<button type="button" class="tool-btn" on:click={clearStrokeSelection}>Clear Select</button>
+						{/if}
+					</div>
+					{#if !beginnerMode}
+						<div class="transform-grid">
+							<button type="button" class="mini-export-btn" on:click={() => nudgeSelection(-0.12, 0)}>Move L</button>
+							<button type="button" class="mini-export-btn" on:click={() => nudgeSelection(0.12, 0)}>Move R</button>
+							<button type="button" class="mini-export-btn" on:click={() => nudgeSelection(0, 0.12)}>Move U</button>
+							<button type="button" class="mini-export-btn" on:click={() => nudgeSelection(0, -0.12)}>Move D</button>
+							<button type="button" class="mini-export-btn" on:click={() => rotateSelection(12)}>Rotate +</button>
+							<button type="button" class="mini-export-btn" on:click={() => rotateSelection(-12)}>Rotate -</button>
+							<button type="button" class="mini-export-btn" on:click={() => scaleSelection(1.08)}>Scale +</button>
+							<button type="button" class="mini-export-btn" on:click={() => scaleSelection(0.92)}>Scale -</button>
+							<button type="button" class="mini-export-btn primary" on:click={sliceCutSelection}>Slice Cut</button>
+						</div>
+					{/if}
+					<p class="edit-help">{editContextLabel}</p>
+					<p class="edit-help">Shift+Click 선택 · Ctrl/Cmd+C,V,X,D · Delete/Backspace</p>
+				</div>
 				<div class="toggle-stack">
 					{#if !beginnerMode}
 						<label class="toggle-row" for="auto-fill">
@@ -928,6 +1091,9 @@
 					{/if}
 					{#if exportStatus}
 						<p class="export-status">{exportStatus}</p>
+					{/if}
+					{#if editActionStatus}
+						<p class="export-status">{editActionStatus}</p>
 					{/if}
 					{#if !beginnerMode}
 						{#if partSaveStatus}
@@ -1430,6 +1596,35 @@
 	.tool-stack.beginner .tool-btn {
 		height: 42px;
 		font-size: 0.9rem;
+	}
+
+	.edit-block {
+		margin-top: 8px;
+		padding-top: 8px;
+		border-top: 1px solid rgba(255, 255, 255, 0.12);
+	}
+
+	.edit-actions {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 6px;
+	}
+
+	.edit-actions.beginner {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+
+	.transform-grid {
+		margin-top: 8px;
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: 6px;
+	}
+
+	.edit-help {
+		margin: 8px 0 0;
+		font-size: 0.64rem;
+		color: #9fb3d3;
 	}
 
 	.tool-btn {

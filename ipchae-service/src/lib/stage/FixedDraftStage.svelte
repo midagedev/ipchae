@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy, onMount } from 'svelte';
+	import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 	import type { DraftBounds, DraftExportDot, DraftSummary } from '$lib/core/contracts/editor-stage';
 	import * as THREE from 'three';
 	import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -80,6 +80,7 @@
 	export let sliceDepth = 0;
 	export let sliceLayerOverlays: SliceLayerOverlay[] = [];
 	export let drawLocked = false;
+	export let editLocked = false;
 	export let drawTool: DrawTool = 'free-draw';
 
 	type DrawTool = 'free-draw' | 'fill' | 'erase';
@@ -100,6 +101,18 @@
 		view: ViewId;
 		strokeId: string;
 	};
+	type StrokeSnapshotDot = {
+		basePoint: [number, number, number];
+		radius: number;
+		depositRadius: number;
+		depositAmount: number;
+		view: ViewId;
+		colorHex: string;
+	};
+	type StrokeSnapshot = {
+		strokeId: string;
+		dots: StrokeSnapshotDot[];
+	};
 	type EraseChange = {
 		dotId: string;
 		beforeAmount: number;
@@ -114,6 +127,15 @@
 		| {
 				kind: 'erase';
 				changes: EraseChange[];
+		  }
+		| {
+				kind: 'delete';
+				snapshot: StrokeSnapshot;
+		  }
+		| {
+				kind: 'snapshot';
+				strokeId: string;
+				before: StrokeSnapshot;
 		  };
 
 	let activeView: ViewId = 'front';
@@ -157,6 +179,12 @@
 	const strokeRoot = new THREE.Group();
 	const actionHistory: HistoryEntry[] = [];
 	const strokeDots: StrokeDot[] = [];
+	const dispatch = createEventDispatcher<{
+		selectionchange: { strokeId: string | null };
+	}>();
+	let selectedStrokeId: string | null = null;
+	let clipboardStrokeSnapshot: StrokeSnapshot | null = null;
+	let pasteSerial = 0;
 	const stackHeightMaps: Record<ViewId, Map<string, number>> = {
 		front: new Map(),
 		back: new Map(),
@@ -290,10 +318,15 @@
 		smoothSurfaceDirty = true;
 	}
 
+	function isDotVisible(dot: StrokeDot) {
+		if (dot.depositAmount <= 1e-6) return false;
+		if (!smoothMeshView) return true;
+		return selectedStrokeId !== null && dot.strokeId === selectedStrokeId;
+	}
+
 	function syncDotVisibilityByRenderMode() {
-		const showDots = !smoothMeshView;
 		for (const dot of strokeDots) {
-			dot.mesh.visible = dot.depositAmount > 1e-6 && showDots;
+			dot.mesh.visible = isDotVisible(dot);
 		}
 	}
 
@@ -740,6 +773,467 @@
 		return `dot-${eraseDotSeq}`;
 	}
 
+	function getStrokeObject(strokeId: string) {
+		for (const child of strokeRoot.children) {
+			const candidateStrokeId = String((child as THREE.Group).userData?.strokeId ?? child.name);
+			if (candidateStrokeId === strokeId) return child as THREE.Group;
+		}
+		return null;
+	}
+
+	function strokeExists(strokeId: string) {
+		return Boolean(getStrokeObject(strokeId));
+	}
+
+	function setDotSelectionVisual(dot: StrokeDot, selected: boolean) {
+		dot.mesh.material.emissive.set(selected ? '#f59e0b' : '#000000');
+		dot.mesh.material.emissiveIntensity = selected ? 0.38 : 0;
+		dot.mesh.material.needsUpdate = true;
+	}
+
+	function setSelectedStroke(nextStrokeId: string | null) {
+		if (selectedStrokeId === nextStrokeId) return;
+		if (selectedStrokeId) {
+			for (const dot of strokeDots) {
+				if (dot.strokeId === selectedStrokeId) {
+					setDotSelectionVisual(dot, false);
+				}
+			}
+		}
+		selectedStrokeId = nextStrokeId;
+		if (selectedStrokeId) {
+			for (const dot of strokeDots) {
+				if (dot.strokeId === selectedStrokeId) {
+					setDotSelectionVisual(dot, true);
+				}
+			}
+		}
+		syncDotVisibilityByRenderMode();
+		dispatch('selectionchange', { strokeId: selectedStrokeId });
+	}
+
+	function findLastSelectableStrokeId() {
+		for (let i = actionHistory.length - 1; i >= 0; i -= 1) {
+			const entry = actionHistory[i];
+			if (entry.kind !== 'draw') continue;
+			if (strokeExists(entry.strokeId)) return entry.strokeId;
+		}
+		const fallback = strokeRoot.children[strokeRoot.children.length - 1];
+		if (!fallback) return null;
+		return String((fallback as THREE.Group).userData?.strokeId ?? fallback.name);
+	}
+
+	function projectPointToViewUV(point: THREE.Vector3, view: ViewId) {
+		const config = VIEW_CONFIGS[view];
+		const normal = new THREE.Vector3(...config.normal).normalize();
+		const tangentV = new THREE.Vector3(...config.up).normalize();
+		tangentV.addScaledVector(normal, -tangentV.dot(normal)).normalize();
+		const tangentU = new THREE.Vector3().crossVectors(normal, tangentV).normalize();
+		return {
+			u: point.dot(tangentU),
+			v: point.dot(tangentV)
+		};
+	}
+
+	function captureStrokeSnapshot(strokeId: string): StrokeSnapshot | null {
+		const dots = strokeDots.filter((dot) => dot.strokeId === strokeId && dot.depositAmount > 1e-6);
+		if (dots.length === 0) return null;
+		return {
+			strokeId,
+			dots: dots.map((dot) => ({
+				basePoint: [dot.basePoint.x, dot.basePoint.y, dot.basePoint.z],
+				radius: dot.radius,
+				depositRadius: dot.depositRadius,
+				depositAmount: dot.depositAmount,
+				view: dot.view,
+				colorHex: `#${dot.mesh.material.color.getHexString()}`
+			}))
+		};
+	}
+
+	function disposeStrokeMeshes(stroke: THREE.Group) {
+		for (const child of stroke.children) {
+			if (child instanceof THREE.Mesh) {
+				child.material.dispose();
+			}
+		}
+	}
+
+	function removeStrokeById(strokeId: string) {
+		const stroke = getStrokeObject(strokeId);
+		if (stroke) {
+			strokeRoot.remove(stroke);
+			disposeStrokeMeshes(stroke);
+		}
+
+		for (let i = strokeDots.length - 1; i >= 0; i -= 1) {
+			if (strokeDots[i].strokeId === strokeId) {
+				strokeDots.splice(i, 1);
+			}
+		}
+
+		if (selectedStrokeId === strokeId) {
+			setSelectedStroke(null);
+		}
+	}
+
+	function restoreStrokeFromSnapshot(
+		snapshot: StrokeSnapshot,
+		{
+			strokeId = `stroke-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+			offset = new THREE.Vector3()
+		}: {
+			strokeId?: string;
+			offset?: THREE.Vector3;
+		} = {}
+	) {
+		const stroke = new THREE.Group();
+		stroke.name = strokeId;
+		stroke.userData.strokeId = strokeId;
+		strokeRoot.add(stroke);
+
+		for (const dotSnapshot of snapshot.dots) {
+			const basePoint = new THREE.Vector3(...dotSnapshot.basePoint).add(offset);
+			const brushDot: BrushDotMesh = new THREE.Mesh(
+				unitSphere,
+				new THREE.MeshStandardMaterial({
+					color: dotSnapshot.colorHex,
+					roughness: brushRoughness,
+					metalness: 0.06
+				})
+			);
+			brushDot.position.copy(basePoint);
+			brushDot.scale.setScalar(dotSnapshot.radius);
+			brushDot.visible = !smoothMeshView;
+			stroke.add(brushDot);
+
+			const { u, v } = projectPointToViewUV(basePoint, dotSnapshot.view);
+			const dot: StrokeDot = {
+				id: nextDotId(),
+				mesh: brushDot,
+				basePoint,
+				position: basePoint.clone(),
+				u,
+				v,
+				height: 0,
+				radius: dotSnapshot.radius,
+				depositRadius: dotSnapshot.depositRadius,
+				depositAmount: dotSnapshot.depositAmount,
+				view: dotSnapshot.view,
+				strokeId
+			};
+			strokeDots.push(dot);
+		}
+
+		rebuildHeightMaps();
+		refreshAllDotHeights();
+		markSmoothSurfaceDirty();
+		setSelectedStroke(strokeId);
+
+		return {
+			stroke,
+			strokeId
+		};
+	}
+
+	function resolveSelectedStrokeId() {
+		if (selectedStrokeId && strokeExists(selectedStrokeId)) return selectedStrokeId;
+		const fallback = findLastSelectableStrokeId();
+		if (!fallback) {
+			setSelectedStroke(null);
+			return null;
+		}
+		setSelectedStroke(fallback);
+		return fallback;
+	}
+
+	function getStrokeIdAtPointer(event: PointerEvent) {
+		if (!mainCanvas || !mainCamera) return null;
+		const rect = mainCanvas.getBoundingClientRect();
+		pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+		pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+		raycaster.setFromCamera(pointer, mainCamera);
+
+		let bestStrokeId: string | null = null;
+		let bestDistSq = Number.POSITIVE_INFINITY;
+		for (const dot of strokeDots) {
+			if (dot.depositAmount <= 1e-6) continue;
+			const distSq = raycaster.ray.distanceSqToPoint(dot.position);
+			const maxDist = Math.max(dot.radius * 1.6, brushRadius * 0.8);
+			if (distSq > maxDist * maxDist) continue;
+			if (distSq < bestDistSq) {
+				bestDistSq = distSq;
+				bestStrokeId = dot.strokeId;
+			}
+		}
+		return bestStrokeId;
+	}
+
+	export function getSelectedStrokeId() {
+		return selectedStrokeId;
+	}
+
+	export function selectLastStroke() {
+		const strokeId = findLastSelectableStrokeId();
+		setSelectedStroke(strokeId);
+		return Boolean(strokeId);
+	}
+
+	export function clearStrokeSelection() {
+		setSelectedStroke(null);
+		return true;
+	}
+
+	export function copySelectedStroke() {
+		const strokeId = resolveSelectedStrokeId();
+		if (!strokeId) return false;
+		const snapshot = captureStrokeSnapshot(strokeId);
+		if (!snapshot) return false;
+		clipboardStrokeSnapshot = snapshot;
+		pasteSerial = 0;
+		return true;
+	}
+
+	export function cutSelectedStroke() {
+		if (editLocked) return false;
+		const strokeId = resolveSelectedStrokeId();
+		if (!strokeId) return false;
+		const snapshot = captureStrokeSnapshot(strokeId);
+		if (!snapshot) return false;
+		clipboardStrokeSnapshot = snapshot;
+		pasteSerial = 0;
+		removeStrokeById(strokeId);
+		rebuildHeightMaps();
+		refreshAllDotHeights();
+		markSmoothSurfaceDirty();
+		actionHistory.push({
+			kind: 'delete',
+			snapshot
+		});
+		return true;
+	}
+
+	export function deleteSelectedStroke() {
+		if (editLocked) return false;
+		const strokeId = resolveSelectedStrokeId();
+		if (!strokeId) return false;
+		const snapshot = captureStrokeSnapshot(strokeId);
+		if (!snapshot) return false;
+		removeStrokeById(strokeId);
+		rebuildHeightMaps();
+		refreshAllDotHeights();
+		markSmoothSurfaceDirty();
+		actionHistory.push({
+			kind: 'delete',
+			snapshot
+		});
+		return true;
+	}
+
+	export function pasteCopiedStroke() {
+		if (editLocked) return false;
+		if (!clipboardStrokeSnapshot) return false;
+		pasteSerial += 1;
+		const shiftDistance = brushRadius * (1.6 + pasteSerial * 0.9);
+		const offset = activeTangentU
+			.clone()
+			.multiplyScalar(shiftDistance)
+			.add(activeTangentV.clone().multiplyScalar(shiftDistance * 0.45));
+		const pasted = restoreStrokeFromSnapshot(clipboardStrokeSnapshot, { offset });
+		actionHistory.push({
+			kind: 'draw',
+			stroke: pasted.stroke,
+			strokeId: pasted.strokeId
+		});
+		return true;
+	}
+
+	export function duplicateSelectedStroke() {
+		if (editLocked) return false;
+		const strokeId = resolveSelectedStrokeId();
+		if (!strokeId) return false;
+		const snapshot = captureStrokeSnapshot(strokeId);
+		if (!snapshot) return false;
+		pasteSerial += 1;
+		const shiftDistance = brushRadius * (1.6 + pasteSerial * 0.9);
+		const offset = activeTangentU
+			.clone()
+			.multiplyScalar(shiftDistance)
+			.add(activeTangentV.clone().multiplyScalar(shiftDistance * 0.45));
+		const duplicated = restoreStrokeFromSnapshot(snapshot, { offset });
+		actionHistory.push({
+			kind: 'draw',
+			stroke: duplicated.stroke,
+			strokeId: duplicated.strokeId
+		});
+		return true;
+	}
+
+	function getStrokeDots(strokeId: string) {
+		return strokeDots.filter((dot) => dot.strokeId === strokeId);
+	}
+
+	function commitSnapshotMutation(
+		strokeId: string,
+		before: StrokeSnapshot,
+		mutate: (targetStrokeId: string) => boolean
+	) {
+		const changed = mutate(strokeId);
+		if (!changed) return false;
+		rebuildHeightMaps();
+		refreshAllDotHeights();
+		markSmoothSurfaceDirty();
+		setSelectedStroke(strokeExists(strokeId) ? strokeId : null);
+		actionHistory.push({
+			kind: 'snapshot',
+			strokeId,
+			before
+		});
+		return true;
+	}
+
+	function computeStrokeCenter(strokeId: string) {
+		const dots = getStrokeDots(strokeId).filter((dot) => dot.depositAmount > 1e-6);
+		if (dots.length === 0) return null;
+		const center = new THREE.Vector3();
+		for (const dot of dots) {
+			center.add(dot.basePoint);
+		}
+		center.divideScalar(dots.length);
+		return center;
+	}
+
+	function refreshStrokeUvCoordinates(strokeId: string) {
+		for (const dot of strokeDots) {
+			if (dot.strokeId !== strokeId) continue;
+			const uv = projectPointToViewUV(dot.basePoint, dot.view);
+			dot.u = uv.u;
+			dot.v = uv.v;
+		}
+	}
+
+	export function translateSelectedStroke(dx: number, dy: number, dz: number) {
+		if (editLocked) return false;
+		const strokeId = resolveSelectedStrokeId();
+		if (!strokeId) return false;
+		const before = captureStrokeSnapshot(strokeId);
+		if (!before) return false;
+		const offset = new THREE.Vector3(dx, dy, dz);
+		return commitSnapshotMutation(strokeId, before, (targetStrokeId) => {
+			const dots = getStrokeDots(targetStrokeId);
+			if (dots.length === 0) return false;
+			for (const dot of dots) {
+				dot.basePoint.add(offset);
+			}
+			refreshStrokeUvCoordinates(targetStrokeId);
+			return true;
+		});
+	}
+
+	export function nudgeSelectedStroke(deltaU: number, deltaV: number, deltaN = 0) {
+		const offset = activeTangentU
+			.clone()
+			.multiplyScalar(deltaU)
+			.add(activeTangentV.clone().multiplyScalar(deltaV))
+			.add(activeNormal.clone().multiplyScalar(deltaN));
+		return translateSelectedStroke(offset.x, offset.y, offset.z);
+	}
+
+	export function scaleSelectedStroke(scaleFactor: number) {
+		if (editLocked) return false;
+		const strokeId = resolveSelectedStrokeId();
+		if (!strokeId) return false;
+		if (!Number.isFinite(scaleFactor) || Math.abs(scaleFactor - 1) <= 1e-6) return false;
+		const before = captureStrokeSnapshot(strokeId);
+		if (!before) return false;
+		const center = computeStrokeCenter(strokeId);
+		if (!center) return false;
+
+		return commitSnapshotMutation(strokeId, before, (targetStrokeId) => {
+			const dots = getStrokeDots(targetStrokeId);
+			if (dots.length === 0) return false;
+			const safeScale = THREE.MathUtils.clamp(scaleFactor, 0.25, 4);
+			for (const dot of dots) {
+				dot.basePoint.sub(center).multiplyScalar(safeScale).add(center);
+				dot.radius = Math.max(0.001, dot.radius * safeScale);
+				dot.depositRadius = Math.max(0.001, dot.depositRadius * safeScale);
+			}
+			refreshStrokeUvCoordinates(targetStrokeId);
+			return true;
+		});
+	}
+
+	export function rotateSelectedStroke(degrees: number) {
+		if (editLocked) return false;
+		const strokeId = resolveSelectedStrokeId();
+		if (!strokeId) return false;
+		if (!Number.isFinite(degrees) || Math.abs(degrees) <= 1e-6) return false;
+		const before = captureStrokeSnapshot(strokeId);
+		if (!before) return false;
+		const center = computeStrokeCenter(strokeId);
+		if (!center) return false;
+		const radians = THREE.MathUtils.degToRad(degrees);
+		const rotation = new THREE.Matrix4().makeRotationAxis(activeNormal.clone().normalize(), radians);
+
+		return commitSnapshotMutation(strokeId, before, (targetStrokeId) => {
+			const dots = getStrokeDots(targetStrokeId);
+			if (dots.length === 0) return false;
+			for (const dot of dots) {
+				dot.basePoint.sub(center).applyMatrix4(rotation).add(center);
+			}
+			refreshStrokeUvCoordinates(targetStrokeId);
+			return true;
+		});
+	}
+
+	export function sliceCutSelectedStroke() {
+		if (editLocked) return false;
+		if (!sliceEnabled) return false;
+		const strokeId = resolveSelectedStrokeId();
+		if (!strokeId) return false;
+		const before = captureStrokeSnapshot(strokeId);
+		if (!before) return false;
+
+		const slicePoint = getActiveSlicePoint().clone();
+		const normal = activeNormal.clone().normalize();
+		const dots = getStrokeDots(strokeId).filter((dot) => dot.depositAmount > 1e-6);
+		if (dots.length === 0) return false;
+
+		let positive = 0;
+		let negative = 0;
+		for (const dot of dots) {
+			const signed = dot.basePoint.clone().sub(slicePoint).dot(normal);
+			if (signed >= 0) positive += 1;
+			else negative += 1;
+		}
+		if (positive === 0 || negative === 0) return false;
+		const keepPositive = positive >= negative;
+
+		return commitSnapshotMutation(strokeId, before, (targetStrokeId) => {
+			const stroke = getStrokeObject(targetStrokeId);
+			if (!stroke) return false;
+			let removed = 0;
+			for (let i = strokeDots.length - 1; i >= 0; i -= 1) {
+				const dot = strokeDots[i];
+				if (dot.strokeId !== targetStrokeId) continue;
+				const signed = dot.basePoint.clone().sub(slicePoint).dot(normal);
+				const shouldKeep = keepPositive ? signed >= 0 : signed < 0;
+				if (shouldKeep) continue;
+				stroke.remove(dot.mesh);
+				dot.mesh.material.dispose();
+				strokeDots.splice(i, 1);
+				removed += 1;
+			}
+			if (removed === 0) return false;
+
+			const remaining = strokeDots.some((dot) => dot.strokeId === targetStrokeId);
+			if (!remaining) {
+				strokeRoot.remove(stroke);
+			}
+			return true;
+		});
+	}
+
 	function startStroke(point: THREE.Vector3) {
 		pendingEraseChanges.clear();
 		lastEraseSurfacePoint = null;
@@ -918,7 +1412,7 @@
 			dot.mesh.visible = false;
 			return;
 		}
-		dot.mesh.visible = !smoothMeshView;
+		dot.mesh.visible = isDotVisible(dot);
 		const normal = getViewNormal(dot.view);
 		const currentHeight = sampleHeight(dot.view, dot.u, dot.v);
 		dot.height = currentHeight;
@@ -1387,7 +1881,7 @@
 
 			recordEraseChange(dot, beforeAmount, afterAmount);
 			dot.depositAmount = afterAmount;
-			dot.mesh.visible = afterAmount > 1e-6 && !smoothMeshView;
+			dot.mesh.visible = isDotVisible(dot);
 			changed = true;
 		}
 
@@ -1489,6 +1983,9 @@
 	}
 
 	function finishStroke() {
+		const finishedStrokeId = activeStroke
+			? String(activeStroke.userData.strokeId ?? activeStroke.name)
+			: null;
 		if (lastRawStrokePoint) {
 			fillStrokeCurve(lastRawStrokePoint);
 		}
@@ -1508,6 +2005,9 @@
 		strokeSupportMap = null;
 		strokeSupportView = null;
 		activeStrokeTool = 'free-draw';
+		if (finishedStrokeId) {
+			setSelectedStroke(finishedStrokeId);
+		}
 	}
 
 	function finishErase() {
@@ -1529,24 +2029,24 @@
 		if (!latest) return;
 
 		if (latest.kind === 'draw') {
-			strokeRoot.remove(latest.stroke);
-			for (let i = strokeDots.length - 1; i >= 0; i -= 1) {
-				if (strokeDots[i].strokeId === latest.strokeId) {
-					strokeDots.splice(i, 1);
-				}
-			}
-
-			for (const child of latest.stroke.children) {
-				if (child instanceof THREE.Mesh) {
-					child.material.dispose();
-				}
-			}
+			removeStrokeById(latest.strokeId);
 		} else {
-			for (const change of latest.changes) {
-				const dot = findDotById(change.dotId);
-				if (!dot) continue;
-				dot.depositAmount = change.beforeAmount;
-				dot.mesh.visible = change.beforeAmount > 1e-6 && !smoothMeshView;
+			if (latest.kind === 'erase') {
+				for (const change of latest.changes) {
+					const dot = findDotById(change.dotId);
+					if (!dot) continue;
+					dot.depositAmount = change.beforeAmount;
+					dot.mesh.visible = isDotVisible(dot);
+				}
+			} else if (latest.kind === 'delete') {
+				restoreStrokeFromSnapshot(latest.snapshot, {
+					strokeId: latest.snapshot.strokeId
+				});
+			} else {
+				removeStrokeById(latest.strokeId);
+				restoreStrokeFromSnapshot(latest.before, {
+					strokeId: latest.before.strokeId
+				});
 			}
 		}
 		rebuildHeightMaps();
@@ -1626,6 +2126,13 @@
 
 	function onPointerDown(event: PointerEvent) {
 		if (!mainCanvas || !cameraLock) return;
+
+		if (event.button === 0 && event.shiftKey) {
+			const hitStrokeId = getStrokeIdAtPointer(event);
+			setSelectedStroke(hitStrokeId);
+			return;
+		}
+
 		const shouldPan = event.button === 2 || inputMode === 'pan';
 
 		if (shouldPan) {
@@ -1637,7 +2144,7 @@
 		}
 
 		if (event.button !== 0) return;
-		if (drawLocked) return;
+		if (drawLocked || editLocked) return;
 		const point = getWorldPoint(event);
 		if (!point) return;
 		isDrawing = true;
@@ -1715,6 +2222,49 @@
 		if (!mainCamera || !cameraLock) return;
 		event.preventDefault();
 		zoomMain(Math.exp(-event.deltaY * 0.0012));
+	}
+
+	function isTypingTarget(target: EventTarget | null) {
+		if (!(target instanceof HTMLElement)) return false;
+		const tag = target.tagName.toLowerCase();
+		return tag === 'input' || tag === 'textarea' || tag === 'select' || target.isContentEditable;
+	}
+
+	function onGlobalKeyDown(event: KeyboardEvent) {
+		if (isTypingTarget(event.target)) return;
+		const meta = event.metaKey || event.ctrlKey;
+		const key = event.key.toLowerCase();
+
+		if (event.key === 'Escape') {
+			clearStrokeSelection();
+			return;
+		}
+		if (event.key === 'Delete' || event.key === 'Backspace') {
+			if (deleteSelectedStroke()) event.preventDefault();
+			return;
+		}
+
+		if (!meta) return;
+
+		if (key === 'c') {
+			if (copySelectedStroke()) event.preventDefault();
+			return;
+		}
+		if (key === 'x') {
+			if (cutSelectedStroke()) event.preventDefault();
+			return;
+		}
+		if (key === 'v') {
+			if (pasteCopiedStroke()) event.preventDefault();
+			return;
+		}
+		if (key === 'd') {
+			if (duplicateSelectedStroke()) event.preventDefault();
+			return;
+		}
+		if (key === 'a') {
+			if (selectLastStroke()) event.preventDefault();
+		}
 	}
 
 	function handleResize() {
@@ -1815,6 +2365,7 @@
 	onMount(() => {
 		isCoarsePointer = window.matchMedia('(pointer: coarse)').matches;
 		setupStage();
+		window.addEventListener('keydown', onGlobalKeyDown);
 		if (mainWrap) {
 			resizeObserver = new ResizeObserver(() => handleResize());
 			resizeObserver.observe(mainWrap);
@@ -1822,6 +2373,7 @@
 	});
 
 	onDestroy(() => {
+		window.removeEventListener('keydown', onGlobalKeyDown);
 		disposeStage();
 	});
 </script>
