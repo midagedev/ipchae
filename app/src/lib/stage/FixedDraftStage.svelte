@@ -120,6 +120,9 @@
 	const MIN_ZOOM = 0.55;
 	const MAX_ZOOM = 6;
 	const STACK_CELL_SIZE = 0.1;
+	const PATH_SAMPLE_STEP_RATIO = 0.45;
+	const MIN_PATH_SAMPLE_STEP = 0.012;
+	const MAX_PATH_STEPS = 160;
 
 	$: brushRadius = 0.02 + (Math.max(1, Math.min(brushSize, 60)) / 60) * 0.18;
 	$: brushRoughness = THREE.MathUtils.clamp(0.7 - brushStrength * 0.35, 0.2, 0.75);
@@ -486,6 +489,25 @@
 		lastSurfacePoint = point.clone();
 	}
 
+	function fillStrokeSegment(toPoint: THREE.Vector3) {
+		const fromPoint = lastSurfacePoint?.clone();
+		if (!fromPoint) {
+			pushBrushDot(toPoint, { force: true });
+			return;
+		}
+
+		const distance = fromPoint.distanceTo(toPoint);
+		if (distance <= 1e-6) return;
+
+		const stepLength = Math.max(brushRadius * PATH_SAMPLE_STEP_RATIO, MIN_PATH_SAMPLE_STEP);
+		const steps = Math.min(MAX_PATH_STEPS, Math.max(1, Math.ceil(distance / stepLength)));
+		for (let step = 1; step <= steps; step += 1) {
+			const t = step / steps;
+			const samplePoint = fromPoint.clone().lerp(toPoint, t);
+			pushBrushDot(samplePoint, { force: true });
+		}
+	}
+
 	function finishStroke() {
 		activeStroke = null;
 		lastSurfacePoint = null;
@@ -575,7 +597,7 @@
 		if (!isDrawing || !cameraLock) return;
 		const point = getWorldPoint(event);
 		if (!point) return;
-		pushBrushDot(point);
+		fillStrokeSegment(point);
 	}
 
 	function onPointerEnd(event: PointerEvent) {
