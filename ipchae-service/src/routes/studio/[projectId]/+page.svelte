@@ -19,6 +19,11 @@
 	} from '$lib/core/catalog/starter-catalog';
 	import { loadStudioSnapshot, saveStudioSnapshot } from '$lib/core/persistence/project-snapshot-store';
 	import {
+		gamificationProfile,
+		hydrateGamification,
+		recordToolUsed
+	} from '$lib/core/gamification/gamification-store';
+	import {
 		enqueueStudioSnapshotSync,
 		studioLastSyncedAt,
 		studioSyncStatus
@@ -136,6 +141,7 @@
 			loadStudioSnapshot(projectId),
 			loadStarterCatalog()
 		]);
+		await hydrateGamification();
 		starterCatalog = catalog;
 		if (!selectedStarterTemplateId) {
 			selectedStarterTemplateId = starterCatalog.templates[0]?.id ?? '';
@@ -185,6 +191,7 @@
 				: $studioSyncStatus === 'failed'
 					? 'Cloud Failed'
 					: 'Cloud Local';
+	$: levelLabel = `Lv.${$gamificationProfile.level}`;
 	$: selectedStarterTemplate =
 		starterCatalog?.templates.find((template) => template.id === selectedStarterTemplateId) ?? null;
 	$: autosaveSignal = [
@@ -402,6 +409,17 @@
 		starterBodyRatio = template.defaultProportion.bodyRatio;
 		starterLegRatio = template.defaultProportion.legRatio;
 		starterApplyNote = `${template.name} template applied`;
+		void recordToolUsed('add-blob');
+	}
+
+	function selectDrawTool(nextTool: DrawTool) {
+		drawTool = nextTool;
+		void recordToolUsed(nextTool);
+	}
+
+	function markExportIntent() {
+		starterApplyNote = 'Export pipeline is enabled for next phase';
+		void recordToolUsed('smooth');
 	}
 </script>
 
@@ -415,6 +433,7 @@
 				<div class="brand-stack">
 					<p class="brand">IPCHAE</p>
 					<p class="project-name">Project {projectIdLabel}</p>
+					<p class="level-badge">{levelLabel}</p>
 				</div>
 			</div>
 
@@ -427,7 +446,7 @@
 				<button type="button" class="app-btn" on:click={zoomOut}>-</button>
 				<button type="button" class="app-btn" on:click={zoomIn}>+</button>
 				<button type="button" class="app-btn" on:click={() => stageRef?.resetMainView?.()}>Reset</button>
-				<button type="button" class="app-btn primary">Export</button>
+				<button type="button" class="app-btn primary" on:click={markExportIntent}>Export</button>
 			</div>
 		</header>
 
@@ -631,14 +650,14 @@
 					</div>
 				</div>
 				<div class="tool-stack">
-					{#each drawTools as tool}
-						<button
-							type="button"
-							class="tool-btn {drawTool === tool.id ? 'active' : ''}"
-							on:click={() => (drawTool = tool.id)}
-						>
-							{tool.label}
-						</button>
+						{#each drawTools as tool}
+							<button
+								type="button"
+								class="tool-btn {drawTool === tool.id ? 'active' : ''}"
+								on:click={() => selectDrawTool(tool.id)}
+							>
+								{tool.label}
+							</button>
 					{/each}
 				</div>
 				<div class="toggle-stack">
@@ -762,6 +781,14 @@
 		font-size: 0.84rem;
 		font-weight: 700;
 		color: #eef3fa;
+	}
+
+	.level-badge {
+		margin: 2px 0 0;
+		font-size: 0.68rem;
+		font-weight: 800;
+		letter-spacing: 0.05em;
+		color: #8fd8ff;
 	}
 
 	.action-group {

@@ -118,6 +118,10 @@
 				<span class="card-title">Part Demo</span>
 				<span class="card-desc">파츠 공유 import 테스트</span>
 			</a>
+			<a class="start-card" href={`${base}/collab/demo-project-editor`}>
+				<span class="card-title">Collab Demo</span>
+				<span class="card-desc">invite/lock 시뮬레이터</span>
+			</a>
 		</div>
 	</section>
 

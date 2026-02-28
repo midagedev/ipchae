@@ -182,3 +182,13 @@
 3. T3: Supabase 스키마/RLS/Storage 리허설 적용
 4. T4: Starter/Parts 로컬 카탈로그 + 브라우저 최소 UI
 5. T1/T2: Validation/Export 인터페이스 선고정
+
+## 13. 실행 로그
+1. 2026-02-28 (commit `8cbe4ff`)
+   1. T0/T1 완료: SvelteKit workspace 부트스트랩, Studio/FixedDraftStage 이관
+   2. T2 시작: IndexedDB 기반 Studio snapshot 자동저장/복원
+   3. T3 시작: Supabase client/sync queue 기초 계층 추가
+2. 2026-02-28 (commit `a8b4421`)
+   1. T4 시작: Starter 카탈로그 로더(원격 우선 + 로컬 fallback)
+   2. T4 진행: Parts 브라우저 필터 UI, Studio Starter 패널 추가
+   3. T5 시작: Share/Part 데모 CTA -> Studio clone/import 경로 추가

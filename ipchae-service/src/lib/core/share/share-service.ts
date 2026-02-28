@@ -1,4 +1,8 @@
 import type { StartMode, StudioSnapshotV1 } from '$lib/core/contracts/studio';
+import {
+	recordPartImportReward,
+	recordShareCloneReward
+} from '$lib/core/gamification/gamification-store';
 import { saveStudioSnapshot } from '$lib/core/persistence/project-snapshot-store';
 
 export type ProjectShareView = {
@@ -109,6 +113,7 @@ export async function cloneProjectFromShare(share: ProjectShareView): Promise<st
 	if (!share.allowClone) throw new Error('CLONE_DISABLED');
 	const projectId = crypto.randomUUID();
 	await saveStudioSnapshot(createDefaultSnapshot(projectId, 'starter'));
+	await recordShareCloneReward(share.shareSlug);
 	return projectId;
 }
 
@@ -116,6 +121,6 @@ export async function importPartFromShare(share: PartShareView): Promise<string>
 	if (!share.allowImport) throw new Error('IMPORT_DISABLED');
 	const projectId = crypto.randomUUID();
 	await saveStudioSnapshot(createDefaultSnapshot(projectId, 'starter'));
+	await recordPartImportReward(share.partShareSlug);
 	return projectId;
 }
-
