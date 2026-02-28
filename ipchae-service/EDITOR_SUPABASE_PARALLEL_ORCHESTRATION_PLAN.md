@@ -225,3 +225,7 @@
 13. 2026-02-28 (commit `f32da05`)
    1. T2/T3 성능: Studio autosave sync queue에 `projectId` 기준 coalescing 적용(중복 스냅샷 병합)
    2. T8 품질: sync queue coalescing 동작 테스트 추가
+14. 2026-02-28 (commit `7adada3`)
+   1. T1 UX 리셋: Studio에 `초등 모드` 기본 UX 도입(고급 패널 숨김, 단순화된 상단 액션)
+   2. T8 품질: E2E를 초등모드 -> 고급모드 전환 시나리오로 갱신
+   3. 문서: `UX_CHILD_FIRST_RESET_PLAN.md` 작성
