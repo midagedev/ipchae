@@ -18,6 +18,7 @@ export type XpEvent = {
 		| 'tool_usage_milestone'
 		| 'project_clone_received'
 		| 'part_import_received'
+		| 'export_success'
 		| 'achievement_unlock';
 	xpDelta: number;
 	eventKey: string;
@@ -95,6 +96,13 @@ const ACHIEVEMENTS: AchievementDef[] = [
 		metricKey: 'part.import.received',
 		thresholdValue: 1,
 		xpReward: 18
+	},
+	{
+		code: 'export_first',
+		name: 'First Export',
+		metricKey: 'export.success.count',
+		thresholdValue: 1,
+		xpReward: 24
 	}
 ];
 
@@ -206,6 +214,9 @@ function metricValue(metricKey: string): number {
 	if (metricKey === 'part.import.received') {
 		return memoryState.xpEvents.filter((item) => item.sourceType === 'part_import_received').length;
 	}
+	if (metricKey === 'export.success.count') {
+		return memoryState.xpEvents.filter((item) => item.sourceType === 'export_success').length;
+	}
 	return 0;
 }
 
@@ -269,6 +280,17 @@ export async function recordPartImportReward(partShareSlug: string) {
 		sourceType: 'part_import_received',
 		xpDelta: 12,
 		eventKey: `part-import:${partShareSlug}`
+	});
+	await evaluateAchievements();
+	await saveState();
+	applyStateToStores();
+}
+
+export async function recordExportSuccess(projectId: string) {
+	await grantXp({
+		sourceType: 'export_success',
+		xpDelta: 20,
+		eventKey: `export:${projectId}:${Date.now()}`
 	});
 	await evaluateAchievements();
 	await saveState();

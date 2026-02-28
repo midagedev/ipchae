@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
+	import type { DraftBounds, DraftExportDot, DraftSummary } from '$lib/core/contracts/editor-stage';
 	import * as THREE from 'three';
 	import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 	import { MarchingCubes } from 'three/examples/jsm/objects/MarchingCubes.js';
@@ -1557,6 +1558,70 @@
 		while (actionHistory.length > 0) {
 			undoLastStroke();
 		}
+	}
+
+	function toDraftExportDot(dot: StrokeDot): DraftExportDot {
+		return {
+			x: dot.position.x,
+			y: dot.position.y,
+			z: dot.position.z,
+			radius: dot.radius,
+			depositAmount: dot.depositAmount,
+			colorHex: `#${dot.mesh.material.color.getHexString()}`
+		};
+	}
+
+	function computeBounds(dots: StrokeDot[]): DraftBounds | null {
+		if (dots.length === 0) return null;
+		let minX = Number.POSITIVE_INFINITY;
+		let minY = Number.POSITIVE_INFINITY;
+		let minZ = Number.POSITIVE_INFINITY;
+		let maxX = Number.NEGATIVE_INFINITY;
+		let maxY = Number.NEGATIVE_INFINITY;
+		let maxZ = Number.NEGATIVE_INFINITY;
+
+		for (const dot of dots) {
+			const radius = Math.max(0.0001, dot.radius);
+			minX = Math.min(minX, dot.position.x - radius);
+			minY = Math.min(minY, dot.position.y - radius);
+			minZ = Math.min(minZ, dot.position.z - radius);
+			maxX = Math.max(maxX, dot.position.x + radius);
+			maxY = Math.max(maxY, dot.position.y + radius);
+			maxZ = Math.max(maxZ, dot.position.z + radius);
+		}
+
+		return {
+			minX,
+			minY,
+			minZ,
+			maxX,
+			maxY,
+			maxZ
+		};
+	}
+
+	export function getDraftSummary(maxDots = 3200): DraftSummary {
+		const activeDots = strokeDots.filter((dot) => dot.depositAmount > 1e-6);
+		const dotCount = activeDots.length;
+		const strokeCount = strokeRoot.children.length;
+
+		const sampledDots: DraftExportDot[] = [];
+		const step = dotCount > maxDots ? Math.ceil(dotCount / maxDots) : 1;
+		for (let i = 0; i < dotCount; i += step) {
+			sampledDots.push(toDraftExportDot(activeDots[i]));
+		}
+
+		const sumRadius = activeDots.reduce((acc, dot) => acc + dot.radius, 0);
+		const sumDeposit = activeDots.reduce((acc, dot) => acc + dot.depositAmount, 0);
+
+		return {
+			strokeCount,
+			dotCount,
+			averageRadius: dotCount > 0 ? sumRadius / dotCount : 0,
+			averageDepositAmount: dotCount > 0 ? sumDeposit / dotCount : 0,
+			bounds: computeBounds(activeDots),
+			dots: sampledDots
+		};
 	}
 
 	function onPointerDown(event: PointerEvent) {

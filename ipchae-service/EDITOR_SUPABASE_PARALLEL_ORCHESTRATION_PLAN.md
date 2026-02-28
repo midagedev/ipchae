@@ -192,3 +192,10 @@
    1. T4 시작: Starter 카탈로그 로더(원격 우선 + 로컬 fallback)
    2. T4 진행: Parts 브라우저 필터 UI, Studio Starter 패널 추가
    3. T5 시작: Share/Part 데모 CTA -> Studio clone/import 경로 추가
+3. 2026-02-28 (commit `434a58e`)
+   1. T7 시작: 로컬 XP/레벨/업적 엔진 및 `/account` 시각화 연결
+   2. T6 시작: 협업 invite/heartbeat/lock 로컬 시뮬레이터 추가
+4. 2026-02-28 (진행 중)
+   1. T1/T5: Validation + STL/PLY export 루프 연결
+   2. T5/T6: Share/Collab Supabase 경로 우선 + 로컬 fallback 구조 적용
+   3. T5: Cloudflare Worker 기반 동적 OG 템플릿 추가

@@ -12,17 +12,26 @@
 		StudioSnapshotV1,
 		ViewId
 	} from '$lib/core/contracts/studio';
+	import type { DraftSummary } from '$lib/core/contracts/editor-stage';
 	import {
 		loadStarterCatalog,
 		type StarterCatalog,
 		type StarterTemplate
 	} from '$lib/core/catalog/starter-catalog';
+	import {
+		buildAsciiPly,
+		buildAsciiStl,
+		downloadTextFile
+	} from '$lib/core/export/mesh-export-service';
+	import { savePartFromDraft } from '$lib/core/parts/my-part-store';
 	import { loadStudioSnapshot, saveStudioSnapshot } from '$lib/core/persistence/project-snapshot-store';
 	import {
 		gamificationProfile,
 		hydrateGamification,
+		recordExportSuccess,
 		recordToolUsed
 	} from '$lib/core/gamification/gamification-store';
+	import { validateDraftSummary, type ValidationReport } from '$lib/core/validation/validation-service';
 	import {
 		enqueueStudioSnapshotSync,
 		studioLastSyncedAt,
@@ -94,6 +103,10 @@
 	let starterBodyRatio = 1;
 	let starterLegRatio = 0.75;
 	let starterApplyNote = '';
+	let exportFormat: 'stl' | 'ply' = 'stl';
+	let validationReport: ValidationReport | null = null;
+	let exportStatus = '';
+	let partSaveStatus = '';
 
 	let brushSize = 20;
 	let brushStrength = 0.28;
@@ -194,6 +207,9 @@
 	$: levelLabel = `Lv.${$gamificationProfile.level}`;
 	$: selectedStarterTemplate =
 		starterCatalog?.templates.find((template) => template.id === selectedStarterTemplateId) ?? null;
+	$: validationSummaryLabel = validationReport
+		? `${validationReport.errors.length} errors / ${validationReport.warnings.length} warnings`
+		: 'not validated';
 	$: autosaveSignal = [
 		page.params.projectId,
 		startMode,
@@ -417,9 +433,65 @@
 		void recordToolUsed(nextTool);
 	}
 
-	function markExportIntent() {
-		starterApplyNote = 'Export pipeline is enabled for next phase';
-		void recordToolUsed('smooth');
+	function readDraftSummary(): DraftSummary | null {
+		const summary = stageRef?.getDraftSummary?.();
+		if (!summary) return null;
+		return summary as DraftSummary;
+	}
+
+	function runValidation() {
+		const summary = readDraftSummary();
+		if (!summary) {
+			exportStatus = 'Validation failed: draft summary unavailable';
+			return;
+		}
+		validationReport = validateDraftSummary(summary);
+		if (validationReport.exportAllowed) {
+			exportStatus = 'Validation passed. Export is available.';
+		} else {
+			exportStatus = 'Validation blocked export. Fix errors and try again.';
+		}
+	}
+
+	function exportCurrent(format: 'stl' | 'ply') {
+		const summary = readDraftSummary();
+		if (!summary) {
+			exportStatus = 'Export failed: draft summary unavailable';
+			return;
+		}
+
+		validationReport = validateDraftSummary(summary);
+		if (!validationReport.exportAllowed) {
+			exportStatus = 'Export blocked by validation errors.';
+			return;
+		}
+
+		const projectId = page.params.projectId ?? 'local-project';
+		const timestamp = new Date().toISOString().replaceAll(':', '-');
+		const filename = `ipchae-${projectId.slice(0, 8)}-${timestamp}.${format}`;
+		const content =
+			format === 'stl'
+				? buildAsciiStl(summary, `ipchae_${projectId.slice(0, 8)}`)
+				: buildAsciiPly(summary);
+		const mimeType = format === 'stl' ? 'model/stl' : 'application/octet-stream';
+		downloadTextFile(content, filename, mimeType);
+		exportStatus = `${format.toUpperCase()} export completed`;
+		void recordExportSuccess(projectId);
+	}
+
+	async function saveCurrentPart() {
+		const summary = readDraftSummary();
+		const projectId = page.params.projectId;
+		if (!summary || !projectId) {
+			partSaveStatus = 'Save Part failed: no draft data';
+			return;
+		}
+		const part = await savePartFromDraft({
+			projectId,
+			summary,
+			styleFamily: selectedStarterTemplate?.targetStyle ?? 'generic'
+		});
+		partSaveStatus = `Saved ${part.name} as private`;
 	}
 </script>
 
@@ -446,7 +518,8 @@
 				<button type="button" class="app-btn" on:click={zoomOut}>-</button>
 				<button type="button" class="app-btn" on:click={zoomIn}>+</button>
 				<button type="button" class="app-btn" on:click={() => stageRef?.resetMainView?.()}>Reset</button>
-				<button type="button" class="app-btn primary" on:click={markExportIntent}>Export</button>
+				<button type="button" class="app-btn" on:click={saveCurrentPart}>Save Part</button>
+				<button type="button" class="app-btn primary" on:click={() => exportCurrent(exportFormat)}>Export</button>
 			</div>
 		</header>
 
@@ -690,6 +763,34 @@
 				<div class="color-row">
 					<input id="brush-color" class="color-input" type="color" bind:value={brushColorHex} />
 					<span class="hex-code">{brushColorHex.toUpperCase()}</span>
+				</div>
+
+				<div class="export-block">
+					<p class="field-label">Validation & Export</p>
+					<div class="export-row">
+						<select bind:value={exportFormat}>
+							<option value="stl">STL</option>
+							<option value="ply">PLY</option>
+						</select>
+						<button type="button" class="mini-export-btn" on:click={runValidation}>Validate</button>
+						<button type="button" class="mini-export-btn primary" on:click={() => exportCurrent(exportFormat)}>
+							Export
+						</button>
+					</div>
+					<p class="field-value">{validationSummaryLabel}</p>
+					{#if validationReport && validationReport.all.length > 0}
+						<ul class="validation-list">
+							{#each validationReport.all as issue}
+								<li class={issue.severity}>{issue.code}: {issue.message}</li>
+							{/each}
+						</ul>
+					{/if}
+					{#if exportStatus}
+						<p class="export-status">{exportStatus}</p>
+					{/if}
+					{#if partSaveStatus}
+						<p class="export-status">{partSaveStatus}</p>
+					{/if}
 				</div>
 			</aside>
 
@@ -1207,6 +1308,69 @@
 		font-size: 0.72rem;
 		font-weight: 700;
 		color: #c8d3e8;
+	}
+
+	.export-block {
+		margin-top: 12px;
+		padding-top: 10px;
+		border-top: 1px solid rgba(255, 255, 255, 0.15);
+		display: grid;
+		gap: 6px;
+	}
+
+	.export-row {
+		display: grid;
+		grid-template-columns: 1fr auto auto;
+		gap: 6px;
+	}
+
+	.export-row select {
+		height: 30px;
+		border-radius: 8px;
+		border: 1px solid rgba(255, 255, 255, 0.15);
+		background: rgba(35, 42, 53, 0.95);
+		color: #e5eefc;
+		padding: 0 8px;
+		font-size: 0.72rem;
+	}
+
+	.mini-export-btn {
+		height: 30px;
+		padding: 0 8px;
+		border: 1px solid rgba(255, 255, 255, 0.18);
+		border-radius: 8px;
+		background: #2a303b;
+		color: #deebff;
+		font-size: 0.68rem;
+		font-weight: 700;
+		cursor: pointer;
+	}
+
+	.mini-export-btn.primary {
+		border-color: rgba(96, 169, 255, 0.82);
+		background: rgba(35, 87, 160, 0.84);
+	}
+
+	.validation-list {
+		margin: 0;
+		padding-left: 16px;
+		display: grid;
+		gap: 4px;
+		font-size: 0.66rem;
+	}
+
+	.validation-list li.error {
+		color: #fecaca;
+	}
+
+	.validation-list li.warning {
+		color: #fde68a;
+	}
+
+	.export-status {
+		margin: 0;
+		font-size: 0.66rem;
+		color: #9fcbff;
 	}
 
 	.panel-bottom {

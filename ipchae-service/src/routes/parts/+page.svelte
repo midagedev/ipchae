@@ -7,6 +7,12 @@
 		type StarterPart,
 		type StarterStyle
 	} from '$lib/core/catalog/starter-catalog';
+	import {
+		listMyParts,
+		updatePartVisibility,
+		type MyPart,
+		type MyPartVisibility
+	} from '$lib/core/parts/my-part-store';
 
 	const categories: Array<StarterPart['category'] | 'all'> = [
 		'all',
@@ -37,9 +43,13 @@
 	let category: StarterPart['category'] | 'all' = 'all';
 	let styleFamily: StarterStyle | 'all' = 'all';
 	let difficulty: StarterPart['difficulty'] | 'all' = 'all';
+	let myParts: MyPart[] = [];
+	let myPartStatus = '';
 
 	onMount(async () => {
-		catalog = await loadStarterCatalog();
+		const [nextCatalog, nextMyParts] = await Promise.all([loadStarterCatalog(), listMyParts()]);
+		catalog = nextCatalog;
+		myParts = nextMyParts;
 	});
 
 	$: filteredParts = catalog
@@ -50,6 +60,12 @@
 				difficulty
 			})
 		: [];
+
+	async function changeVisibility(partId: string, visibility: MyPartVisibility) {
+		const next = await updatePartVisibility(partId, visibility);
+		myPartStatus = next ? `${next.name} -> ${visibility}` : 'part not found';
+		myParts = await listMyParts();
+	}
 </script>
 
 <main class="parts-shell">
@@ -108,6 +124,31 @@
 					<button type="button">Apply (Next)</button>
 				</article>
 			{/each}
+		{/if}
+	</section>
+
+	<section class="my-parts">
+		<h2>My Parts</h2>
+		{#if myPartStatus}
+			<p class="my-part-status">{myPartStatus}</p>
+		{/if}
+		{#if myParts.length === 0}
+			<p>저장된 내 파츠가 없습니다. Studio에서 `Save Part`를 실행해 주세요.</p>
+		{:else}
+			<div class="parts-grid">
+				{#each myParts as part}
+					<article class="part-card">
+						<p class="part-title">{part.name}</p>
+						<p class="part-meta">{part.category} · {part.styleFamily} · {part.visibility}</p>
+						<p class="part-tags">poly≈{part.polyCountEstimate} · {new Date(part.updatedAt).toLocaleString()}</p>
+						<div class="publish-row">
+							<button type="button" on:click={() => changeVisibility(part.id, 'private')}>Private</button>
+							<button type="button" on:click={() => changeVisibility(part.id, 'unlisted')}>Unlisted</button>
+							<button type="button" on:click={() => changeVisibility(part.id, 'public')}>Public</button>
+						</div>
+					</article>
+				{/each}
+			</div>
 		{/if}
 	</section>
 </main>
@@ -201,6 +242,32 @@
 		cursor: pointer;
 	}
 
+	.my-parts {
+		display: grid;
+		gap: 10px;
+	}
+
+	.my-parts h2 {
+		margin: 0;
+	}
+
+	.my-part-status {
+		margin: 0;
+		color: #1d4ed8;
+		font-weight: 700;
+	}
+
+	.publish-row {
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: 6px;
+	}
+
+	.publish-row button {
+		height: 30px;
+		font-size: 0.75rem;
+	}
+
 	@media (max-width: 960px) {
 		.filter-grid {
 			grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -218,4 +285,3 @@
 		}
 	}
 </style>
-

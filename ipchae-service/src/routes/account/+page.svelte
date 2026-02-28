@@ -6,6 +6,7 @@
 		signInWithOtp,
 		signOutSupabase
 	} from '$lib/core/supabase/auth-store';
+	import { pullMyPartsFromSupabase, syncMyPartsToSupabase } from '$lib/core/parts/my-part-store';
 	import {
 		gamificationAchievements,
 		gamificationProfile,
@@ -17,6 +18,7 @@
 	let email = '';
 	let authMessage = '';
 	let pendingSync = 0;
+	let partSyncMessage = '';
 
 	onMount(async () => {
 		await Promise.all([hydrateAuthState(), hydrateGamification()]);
@@ -32,6 +34,24 @@
 			authMessage = error instanceof Error ? error.message : 'OTP 전송 실패';
 		}
 	}
+
+	async function syncMyParts() {
+		const result = await syncMyPartsToSupabase();
+		if (result.skipped) {
+			partSyncMessage = 'Supabase 미연결 또는 비로그인 상태입니다.';
+			return;
+		}
+		partSyncMessage = `My Parts ${result.synced}건을 클라우드로 동기화했습니다.`;
+	}
+
+	async function pullMyParts() {
+		const result = await pullMyPartsFromSupabase();
+		if (result.skipped) {
+			partSyncMessage = 'Supabase 미연결 또는 비로그인 상태입니다.';
+			return;
+		}
+		partSyncMessage = `클라우드 My Parts ${result.pulled}건을 로컬로 가져왔습니다.`;
+	}
 </script>
 
 <main class="account-shell">
@@ -43,6 +63,10 @@
 		{#if $authState.status === 'authenticated'}
 			<p>Logged in as {$authState.email} ({$authState.userId})</p>
 			<button type="button" on:click={signOutSupabase}>Sign Out</button>
+			<div class="sync-actions">
+				<button type="button" on:click={syncMyParts}>Push My Parts</button>
+				<button type="button" on:click={pullMyParts}>Pull My Parts</button>
+			</div>
 		{:else if $authState.status === 'anonymous'}
 			<div class="otp-row">
 				<input type="email" bind:value={email} placeholder="email@domain.com" />
@@ -53,6 +77,9 @@
 			{/if}
 		{:else}
 			<p>Supabase 환경변수가 설정되지 않았습니다. `.env`를 확인하세요.</p>
+		{/if}
+		{#if partSyncMessage}
+			<p>{partSyncMessage}</p>
 		{/if}
 	</section>
 
@@ -122,6 +149,12 @@
 		flex-wrap: wrap;
 	}
 
+	.sync-actions {
+		display: flex;
+		gap: 8px;
+		flex-wrap: wrap;
+	}
+
 	.otp-row input {
 		height: 36px;
 		min-width: 260px;
@@ -173,4 +206,3 @@
 		}
 	}
 </style>
-
