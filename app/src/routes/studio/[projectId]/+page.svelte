@@ -28,7 +28,7 @@
 	];
 
 	let brushSize = 12;
-	let brushStrengthPercent = 45;
+	let brushStrength = 0.45;
 	const paletteColors = [
 		'#111827',
 		'#334155',
@@ -49,7 +49,7 @@
 	];
 	let brushColorHex = '#3b82f6';
 
-	$: brushStrength = brushStrengthPercent / 100;
+	$: brushStrengthPercent = Math.round(brushStrength * 100);
 
 	$: projectIdLabel = (page.params.projectId ?? 'local').slice(0, 8);
 
@@ -93,7 +93,7 @@
 		</aside>
 
 		<div class="main-stage">
-			<FixedDraftStage {brushSize} {brushStrength} {brushColorHex} />
+			<FixedDraftStage bind:brushSize bind:brushStrength bind:brushColorHex {paletteColors} />
 		</div>
 
 		<aside class="inspector">
@@ -102,7 +102,7 @@
 			<input id="size" type="range" min="1" max="60" bind:value={brushSize} />
 			<p class="value-text">{brushSize}</p>
 			<label for="strength">브러시 강도</label>
-			<input id="strength" type="range" min="5" max="100" bind:value={brushStrengthPercent} />
+			<input id="strength" type="range" min="0.05" max="1" step="0.01" bind:value={brushStrength} />
 			<p class="value-text">{brushStrengthPercent}%</p>
 			<label for="brush-color">브러시 색상</label>
 			<div class="color-row">

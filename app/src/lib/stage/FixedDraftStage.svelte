@@ -50,6 +50,7 @@
 	export let brushSize = 12;
 	export let brushStrength = 0.45;
 	export let brushColorHex = '#2563eb';
+	export let paletteColors: string[] = [];
 
 	type InputMode = 'draw' | 'pan';
 	type BrushDotMesh = THREE.Mesh<THREE.SphereGeometry, THREE.MeshStandardMaterial>;
@@ -129,6 +130,11 @@
 	$: brushRadius = 0.02 + (Math.max(1, Math.min(brushSize, 60)) / 60) * 0.18;
 	$: brushOpacity = THREE.MathUtils.clamp(0.22 + brushStrength * 0.78, 0.22, 1);
 	$: brushRoughness = THREE.MathUtils.clamp(0.7 - brushStrength * 0.35, 0.2, 0.75);
+	$: quickPalette =
+		(paletteColors.length
+			? paletteColors
+			: ['#111827', '#ef4444', '#f59e0b', '#22c55e', '#06b6d4', '#3b82f6', '#8b5cf6', '#ffffff']
+		).slice(0, 10);
 
 	function resolveBrushColor() {
 		const color = new THREE.Color();
@@ -747,9 +753,32 @@
 			<span class="lock-chip">{cameraLock ? 'Locked Camera (Default)' : 'Free Camera'}</span>
 			<button type="button" class="toolbar-btn" on:click={() => zoomMain(1.15)}>Zoom +</button>
 			<button type="button" class="toolbar-btn" on:click={() => zoomMain(0.87)}>Zoom -</button>
-			<button type="button" class="toolbar-btn" on:click={resetMainView}>Reset View</button>
+			<button type="button" class="toolbar-btn desktop-only-control" on:click={resetMainView}>
+				Reset View
+			</button>
 			<button type="button" class="toolbar-btn" on:click={undoLastStroke}>Undo Stroke</button>
-			<button type="button" class="toolbar-btn" on:click={clearAllStrokes}>Clear</button>
+			<button type="button" class="toolbar-btn desktop-only-control" on:click={clearAllStrokes}>
+				Clear
+			</button>
+		</div>
+	</div>
+
+	<div class="mobile-quick" aria-label="모바일 퀵 브러시 패널">
+		<div class="mobile-size-wrap">
+			<span>Size {Math.round(brushSize)}</span>
+			<input class="mobile-size" type="range" min="1" max="60" bind:value={brushSize} />
+		</div>
+		<div class="mobile-color-wrap">
+			{#each quickPalette as color}
+				<button
+					type="button"
+					class="mobile-swatch {brushColorHex === color ? 'active' : ''}"
+					style={`--swatch:${color};`}
+					on:click={() => (brushColorHex = color)}
+					aria-label={`색상 ${color}`}
+				></button>
+			{/each}
+			<input class="mobile-color-input" type="color" bind:value={brushColorHex} aria-label="커스텀 색상" />
 		</div>
 	</div>
 
@@ -766,11 +795,10 @@
 		></canvas>
 
 		<div class="pip-wrap">
-			<div class="pip-header">
-				<span>PIP Quarter View</span>
-				<button type="button" class="pip-reset" on:click={resetQuarterView}>Reset</button>
-			</div>
 			<canvas class="pip-canvas" bind:this={pipCanvas}></canvas>
+			<button type="button" class="pip-mini-reset" on:click={resetQuarterView} aria-label="PIP reset">
+				↺
+			</button>
 		</div>
 
 			<p class="stage-help">
@@ -807,8 +835,7 @@
 	}
 
 	.view-btn,
-	.toolbar-btn,
-	.pip-reset {
+	.toolbar-btn {
 		border: 1px solid #d1d9ea;
 		border-radius: 8px;
 		background: #ffffff;
@@ -841,6 +868,53 @@
 		border-color: #0ea5e9;
 		background: #e0f2fe;
 		color: #0369a1;
+	}
+
+	.mobile-quick {
+		display: none;
+	}
+
+	.mobile-size-wrap {
+		display: grid;
+		gap: 4px;
+		font-size: 0.74rem;
+		font-weight: 700;
+		color: #334155;
+	}
+
+	.mobile-size {
+		width: 100%;
+	}
+
+	.mobile-color-wrap {
+		display: flex;
+		gap: 5px;
+		align-items: center;
+		overflow-x: auto;
+		padding-bottom: 2px;
+	}
+
+	.mobile-swatch {
+		flex: 0 0 auto;
+		width: 20px;
+		height: 20px;
+		border-radius: 6px;
+		border: 1px solid rgba(148, 163, 184, 0.7);
+		background: var(--swatch);
+	}
+
+	.mobile-swatch.active {
+		outline: 2px solid #1d4ed8;
+		outline-offset: 1px;
+	}
+
+	.mobile-color-input {
+		flex: 0 0 auto;
+		width: 24px;
+		height: 20px;
+		padding: 0;
+		border: none;
+		background: transparent;
 	}
 
 	.lock-chip {
@@ -880,32 +954,33 @@
 		position: absolute;
 		top: 12px;
 		right: 12px;
-		display: grid;
-		gap: 6px;
-		padding: 8px;
-		border-radius: 10px;
-		border: 1px solid #c7d2fe;
-		background: rgba(255, 255, 255, 0.93);
+		padding: 4px;
+		border-radius: 8px;
+		border: 1px solid rgba(199, 210, 254, 0.6);
+		background: rgba(255, 255, 255, 0.65);
 		backdrop-filter: blur(3px);
-		box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12);
-	}
-
-	.pip-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 8px;
-		font-size: 0.76rem;
-		font-weight: 700;
-		color: #334155;
+		box-shadow: 0 3px 10px rgba(15, 23, 42, 0.09);
 	}
 
 	.pip-canvas {
 		width: 220px;
 		height: 145px;
-		border-radius: 7px;
-		border: 1px solid #dbe2f2;
+		border-radius: 6px;
 		display: block;
+	}
+
+	.pip-mini-reset {
+		position: absolute;
+		top: 4px;
+		right: 4px;
+		width: 22px;
+		height: 22px;
+		border: none;
+		border-radius: 999px;
+		background: rgba(255, 255, 255, 0.78);
+		font-size: 0.8rem;
+		line-height: 1;
+		color: #334155;
 	}
 
 	.stage-help {
@@ -925,51 +1000,81 @@
 	@media (max-width: 960px) {
 		.stage-toolbar {
 			align-items: flex-start;
+			gap: 6px;
 		}
 
 		.view-tabs {
-			width: 100%;
+			max-width: 100%;
 			overflow-x: auto;
 			flex-wrap: nowrap;
 			padding-bottom: 2px;
 		}
 
 		.toolbar-right {
-			width: 100%;
+			width: auto;
+			margin-left: auto;
+			gap: 4px;
 		}
 
 		.toolbar-btn {
-			min-height: 38px;
+			min-height: 32px;
+			padding: 5px 8px;
+			font-size: 0.76rem;
+		}
+
+		.lock-chip,
+		.desktop-only-control {
+			display: none;
+		}
+
+		.mobile-quick {
+			display: grid;
+			gap: 6px;
+			padding: 6px 8px;
+			border-radius: 9px;
+			border: 1px solid #dbe2f2;
+			background: rgba(255, 255, 255, 0.95);
 		}
 
 		.main-wrap {
-			min-height: 360px;
+			min-height: 67vh;
+		}
+
+		.pip-wrap {
+			padding: 2px;
+			border: none;
+			background: rgba(255, 255, 255, 0.3);
+			box-shadow: none;
 		}
 
 		.pip-canvas {
-			width: 180px;
-			height: 120px;
+			width: 132px;
+			height: 88px;
 		}
 
 		.stage-help {
-			font-size: 0.7rem;
+			display: none;
 		}
 	}
 
 	@media (max-width: 640px) {
 		.pip-wrap {
 			top: auto;
-			bottom: 12px;
-			right: 12px;
+			bottom: 8px;
+			right: 8px;
 		}
 
 		.pip-canvas {
-			width: 148px;
-			height: 98px;
+			width: 112px;
+			height: 74px;
 		}
 
 		.main-wrap {
-			min-height: 62vh;
+			min-height: 70vh;
+		}
+
+		.pip-mini-reset {
+			display: none;
 		}
 	}
 </style>

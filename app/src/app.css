@@ -359,11 +359,11 @@ button {
 	}
 
 	.tool-dock {
-		order: 2;
+		display: none;
 	}
 
 	.inspector {
-		order: 3;
+		display: none;
 	}
 
 	.stepper {
