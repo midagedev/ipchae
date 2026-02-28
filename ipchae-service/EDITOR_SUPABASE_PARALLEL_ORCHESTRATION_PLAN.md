@@ -207,3 +207,13 @@
    1. T5 진행: Studio에서 Share 링크 생성 + 클립보드 복사 + 로컬 share registry fallback
 7. 2026-02-28 (commit `fc8a9b5`)
    1. T1 성능: Studio route에서 Stage 동적 import(lazy load) 적용
+8. 2026-02-28 (commit `fceec88`)
+   1. T8 진행: Playwright 스모크 테스트(home/parts/share) 도입 및 `test:e2e` 파이프라인 추가
+   2. T4 품질: Parts 필터 라벨 접근성 보정(`label for/id`)으로 role 기반 테스트 안정화
+9. 2026-02-28 (commit `af7300f`)
+   1. T5/T6 진행: Project share 페이지에 `같이 편집하기` CTA 추가 및 collab invite 생성 경로 연결
+   2. T4/T5 진행: My Parts에서 Part share 링크 생성/복사 플로우 추가
+   3. T6 안정화: inviteCode 파서가 UUID/role suffix/colon 포맷을 안전하게 해석하도록 수정
+10. 2026-02-28 (commit `62a8c88`)
+   1. T4/T1 진행: Mesh Import 서비스(STL/PLY/OBJ/GLB 감지/파싱/제한 검사) 추가
+   2. T1/T8 진행: Studio 상단 Import 액션 연결 + Import summary/warning 노출 + 스모크 테스트 확장
