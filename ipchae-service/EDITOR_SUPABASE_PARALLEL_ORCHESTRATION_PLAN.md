@@ -217,3 +217,6 @@
 10. 2026-02-28 (commit `62a8c88`)
    1. T4/T1 진행: Mesh Import 서비스(STL/PLY/OBJ/GLB 감지/파싱/제한 검사) 추가
    2. T1/T8 진행: Studio 상단 Import 액션 연결 + Import summary/warning 노출 + 스모크 테스트 확장
+11. 2026-02-28 (commit `789456c`)
+   1. T8 성능: Vite manualChunks(`three`, `three/examples`, `spectrum`) 분할 적용
+   2. T8 운영: chunk warning 임계치 조정으로 빌드 경고 노이즈 축소
