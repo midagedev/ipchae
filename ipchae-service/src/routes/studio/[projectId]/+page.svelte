@@ -12,6 +12,11 @@
 		StudioSnapshotV1,
 		ViewId
 	} from '$lib/core/contracts/studio';
+	import {
+		loadStarterCatalog,
+		type StarterCatalog,
+		type StarterTemplate
+	} from '$lib/core/catalog/starter-catalog';
 	import { loadStudioSnapshot, saveStudioSnapshot } from '$lib/core/persistence/project-snapshot-store';
 	import {
 		enqueueStudioSnapshotSync,
@@ -78,6 +83,12 @@
 	let hydrationDone = false;
 	let localSaveStatus: 'idle' | 'saving' | 'saved' | 'error' = 'idle';
 	let localSavedAt: number | null = null;
+	let starterCatalog: StarterCatalog | null = null;
+	let selectedStarterTemplateId = '';
+	let starterHeadRatio = 1.45;
+	let starterBodyRatio = 1;
+	let starterLegRatio = 0.75;
+	let starterApplyNote = '';
 
 	let brushSize = 20;
 	let brushStrength = 0.28;
@@ -121,7 +132,14 @@
 	onMount(async () => {
 		const projectId = page.params.projectId;
 		if (!projectId) return;
-		const snapshot = await loadStudioSnapshot(projectId);
+		const [snapshot, catalog] = await Promise.all([
+			loadStudioSnapshot(projectId),
+			loadStarterCatalog()
+		]);
+		starterCatalog = catalog;
+		if (!selectedStarterTemplateId) {
+			selectedStarterTemplateId = starterCatalog.templates[0]?.id ?? '';
+		}
 		if (snapshot) {
 			applySnapshot(snapshot);
 		}
@@ -167,9 +185,15 @@
 				: $studioSyncStatus === 'failed'
 					? 'Cloud Failed'
 					: 'Cloud Local';
+	$: selectedStarterTemplate =
+		starterCatalog?.templates.find((template) => template.id === selectedStarterTemplateId) ?? null;
 	$: autosaveSignal = [
 		page.params.projectId,
 		startMode,
+		selectedStarterTemplateId,
+		starterHeadRatio,
+		starterBodyRatio,
+		starterLegRatio,
 		brushSize,
 		brushStrength,
 		brushColorHex,
@@ -300,6 +324,10 @@
 	}
 
 	function applySnapshot(snapshot: StudioSnapshotV1) {
+		selectedStarterTemplateId = snapshot.starterTemplateId ?? selectedStarterTemplateId;
+		starterHeadRatio = snapshot.starterProportion?.headRatio ?? starterHeadRatio;
+		starterBodyRatio = snapshot.starterProportion?.bodyRatio ?? starterBodyRatio;
+		starterLegRatio = snapshot.starterProportion?.legRatio ?? starterLegRatio;
 		brushSize = snapshot.brushSize;
 		brushStrength = snapshot.brushStrength;
 		brushColorHex = snapshot.brushColorHex;
@@ -328,6 +356,12 @@
 			schemaVersion: 1,
 			projectId,
 			mode: startMode,
+			starterTemplateId: selectedStarterTemplateId || undefined,
+			starterProportion: {
+				headRatio: starterHeadRatio,
+				bodyRatio: starterBodyRatio,
+				legRatio: starterLegRatio
+			},
 			brushSize,
 			brushStrength,
 			brushColorHex,
@@ -360,6 +394,14 @@
 				localSaveStatus = 'error';
 			}
 		}, AUTOSAVE_DEBOUNCE_MS);
+	}
+
+	function applyStarterTemplate(template: StarterTemplate) {
+		selectedStarterTemplateId = template.id;
+		starterHeadRatio = template.defaultProportion.headRatio;
+		starterBodyRatio = template.defaultProportion.bodyRatio;
+		starterLegRatio = template.defaultProportion.legRatio;
+		starterApplyNote = `${template.name} template applied`;
 	}
 </script>
 
@@ -411,6 +453,41 @@
 
 			<aside class="overlay-panel panel-left">
 				<p class="panel-title">Tools</p>
+				<div class="mini-block starter-block">
+					<p class="mini-title">Starter</p>
+					<select
+						class="starter-select"
+						bind:value={selectedStarterTemplateId}
+						disabled={!starterCatalog || starterCatalog.templates.length === 0}
+					>
+						{#if !starterCatalog}
+							<option>Loading...</option>
+						{:else}
+							{#each starterCatalog.templates as template}
+								<option value={template.id}>{template.name}</option>
+							{/each}
+						{/if}
+					</select>
+					<div class="starter-ratios">
+						<label for="starter-head">Head {starterHeadRatio.toFixed(2)}</label>
+						<input id="starter-head" type="range" min="1" max="2.1" step="0.01" bind:value={starterHeadRatio} />
+						<label for="starter-body">Body {starterBodyRatio.toFixed(2)}</label>
+						<input id="starter-body" type="range" min="0.7" max="1.4" step="0.01" bind:value={starterBodyRatio} />
+						<label for="starter-leg">Leg {starterLegRatio.toFixed(2)}</label>
+						<input id="starter-leg" type="range" min="0.45" max="1.25" step="0.01" bind:value={starterLegRatio} />
+					</div>
+					<button
+						type="button"
+						class="starter-apply-btn"
+						disabled={!selectedStarterTemplate}
+						on:click={() => selectedStarterTemplate && applyStarterTemplate(selectedStarterTemplate)}
+					>
+						Apply Starter
+					</button>
+					{#if starterApplyNote}
+						<p class="starter-note">{starterApplyNote}</p>
+					{/if}
+				</div>
 				<div class="mini-block">
 					<p class="mini-title">View</p>
 					<div class="mini-segment" role="tablist" aria-label="View">
@@ -770,6 +847,54 @@
 		display: grid;
 		gap: 6px;
 		margin-bottom: 10px;
+	}
+
+	.starter-block {
+		padding-bottom: 8px;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+	}
+
+	.starter-select {
+		height: 30px;
+		border-radius: 8px;
+		border: 1px solid rgba(255, 255, 255, 0.15);
+		background: rgba(35, 42, 53, 0.95);
+		color: #e5eefc;
+		padding: 0 8px;
+		font-size: 0.72rem;
+	}
+
+	.starter-ratios {
+		display: grid;
+		gap: 4px;
+		font-size: 0.68rem;
+		color: #bacbe8;
+	}
+
+	.starter-ratios input {
+		width: 100%;
+	}
+
+	.starter-apply-btn {
+		height: 28px;
+		border-radius: 8px;
+		border: 1px solid rgba(96, 169, 255, 0.72);
+		background: rgba(34, 99, 189, 0.78);
+		color: #f2f7ff;
+		font-weight: 700;
+		font-size: 0.7rem;
+		cursor: pointer;
+	}
+
+	.starter-apply-btn:disabled {
+		opacity: 0.45;
+		cursor: not-allowed;
+	}
+
+	.starter-note {
+		margin: 0;
+		font-size: 0.66rem;
+		color: #9fcbff;
 	}
 
 	.slicer-block {

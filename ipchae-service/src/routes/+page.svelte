@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
 	import { onMount } from 'svelte';
+	import { loadStarterCatalog, type StarterCatalog } from '$lib/core/catalog/starter-catalog';
 	import { getRecentProjects } from '$lib/core/persistence/project-snapshot-store';
 
 	type StartMode = 'blank' | 'free-draw' | 'starter';
@@ -31,9 +32,12 @@
 		'Draw -> Build -> Polish 루프를 직관적으로 완주하기'
 	];
 	let recentProjects: RecentProject[] = [];
+	let starterCatalog: StarterCatalog | null = null;
 
 	onMount(async () => {
-		recentProjects = await getRecentProjects();
+		const [recents, catalog] = await Promise.all([getRecentProjects(), loadStarterCatalog()]);
+		recentProjects = recents;
+		starterCatalog = catalog;
 	});
 
 	async function startProject(mode: StartMode) {
@@ -78,6 +82,20 @@
 	</section>
 
 	<section class="focus">
+		<h2>Starter Catalog</h2>
+		{#if starterCatalog}
+			<ul>
+				<li>Source: {starterCatalog.source}</li>
+				<li>Packs: {starterCatalog.packs.length}</li>
+				<li>Templates: {starterCatalog.templates.length}</li>
+				<li>Official Parts: {starterCatalog.parts.length}</li>
+			</ul>
+		{:else}
+			<p>카탈로그 로딩 중...</p>
+		{/if}
+	</section>
+
+	<section class="focus">
 		<h2>Service Tracks</h2>
 		<div class="card-grid">
 			<a class="start-card" href={`${base}/parts`}>
@@ -91,6 +109,14 @@
 			<a class="start-card" href={`${base}/help`}>
 				<span class="card-title">Help</span>
 				<span class="card-desc">가이드/FAQ/문제해결</span>
+			</a>
+			<a class="start-card" href={`${base}/share/demo-hero-robot`}>
+				<span class="card-title">Share Demo</span>
+				<span class="card-desc">프로젝트 공유 CTA 테스트</span>
+			</a>
+			<a class="start-card" href={`${base}/part/demo-part-hair-01`}>
+				<span class="card-title">Part Demo</span>
+				<span class="card-desc">파츠 공유 import 테스트</span>
 			</a>
 		</div>
 	</section>

@@ -18,6 +18,12 @@ export type StudioSnapshotV1 = {
 	schemaVersion: 1;
 	projectId: string;
 	mode: StartMode;
+	starterTemplateId?: string;
+	starterProportion?: {
+		headRatio: number;
+		bodyRatio: number;
+		legRatio: number;
+	};
 	brushSize: number;
 	brushStrength: number;
 	brushColorHex: string;
@@ -32,4 +38,3 @@ export type StudioSnapshotV1 = {
 	sliceLayers: SliceLayer[];
 	updatedAt: number;
 };
-
