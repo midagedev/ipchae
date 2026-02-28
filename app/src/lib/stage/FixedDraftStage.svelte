@@ -111,6 +111,8 @@
 
 	let activeStroke: THREE.Group | null = null;
 	let lastSurfacePoint: THREE.Vector3 | null = null;
+	const strokeInputPoints: THREE.Vector3[] = [];
+	let lastSmoothedPoint: THREE.Vector3 | null = null;
 	let isDrawing = false;
 	let isPanning = false;
 	let panStartX = 0;
@@ -291,6 +293,9 @@
 		strokeRoot.add(activeStroke);
 		strokeHistory.push(activeStroke);
 		lastSurfacePoint = null;
+		strokeInputPoints.length = 0;
+		strokeInputPoints.push(point.clone());
+		lastSmoothedPoint = point.clone();
 		pushBrushDot(point);
 	}
 
@@ -489,18 +494,15 @@
 		lastSurfacePoint = point.clone();
 	}
 
-	function fillStrokeSegment(toPoint: THREE.Vector3) {
-		const fromPoint = lastSurfacePoint?.clone();
-		if (!fromPoint) {
-			pushBrushDot(toPoint, { force: true });
-			return;
-		}
+	function resolveSegmentSteps(length: number) {
+		const stepLength = Math.max(brushRadius * PATH_SAMPLE_STEP_RATIO, MIN_PATH_SAMPLE_STEP);
+		return Math.min(MAX_PATH_STEPS, Math.max(1, Math.ceil(length / stepLength)));
+	}
 
+	function fillLinearSegment(fromPoint: THREE.Vector3, toPoint: THREE.Vector3) {
 		const distance = fromPoint.distanceTo(toPoint);
 		if (distance <= 1e-6) return;
-
-		const stepLength = Math.max(brushRadius * PATH_SAMPLE_STEP_RATIO, MIN_PATH_SAMPLE_STEP);
-		const steps = Math.min(MAX_PATH_STEPS, Math.max(1, Math.ceil(distance / stepLength)));
+		const steps = resolveSegmentSteps(distance);
 		for (let step = 1; step <= steps; step += 1) {
 			const t = step / steps;
 			const samplePoint = fromPoint.clone().lerp(toPoint, t);
@@ -508,9 +510,56 @@
 		}
 	}
 
+	function fillQuadraticSegment(startPoint: THREE.Vector3, controlPoint: THREE.Vector3, endPoint: THREE.Vector3) {
+		const approxLength = startPoint.distanceTo(controlPoint) + controlPoint.distanceTo(endPoint);
+		if (approxLength <= 1e-6) return;
+		const steps = resolveSegmentSteps(approxLength);
+		for (let step = 1; step <= steps; step += 1) {
+			const t = step / steps;
+			const invT = 1 - t;
+			const samplePoint = startPoint
+				.clone()
+				.multiplyScalar(invT * invT)
+				.add(controlPoint.clone().multiplyScalar(2 * invT * t))
+				.add(endPoint.clone().multiplyScalar(t * t));
+			pushBrushDot(samplePoint, { force: true });
+		}
+	}
+
+	function fillStrokeCurve(toPoint: THREE.Vector3) {
+		const prevInput = strokeInputPoints[strokeInputPoints.length - 1];
+		if (prevInput && prevInput.distanceToSquared(toPoint) <= 1e-8) return;
+		strokeInputPoints.push(toPoint.clone());
+
+		if (strokeInputPoints.length === 2) {
+			const p0 = strokeInputPoints[0];
+			const p1 = strokeInputPoints[1];
+			const mid01 = p0.clone().add(p1).multiplyScalar(0.5);
+			fillLinearSegment(lastSmoothedPoint ?? p0, mid01);
+			lastSmoothedPoint = mid01;
+			return;
+		}
+
+		if (strokeInputPoints.length < 3) return;
+		const p0 = strokeInputPoints[strokeInputPoints.length - 3];
+		const p1 = strokeInputPoints[strokeInputPoints.length - 2];
+		const p2 = strokeInputPoints[strokeInputPoints.length - 1];
+		const startPoint = p0.clone().add(p1).multiplyScalar(0.5);
+		const endPoint = p1.clone().add(p2).multiplyScalar(0.5);
+		fillLinearSegment(lastSmoothedPoint ?? startPoint, startPoint);
+		fillQuadraticSegment(startPoint, p1, endPoint);
+		lastSmoothedPoint = endPoint;
+	}
+
 	function finishStroke() {
+		if (activeStroke && strokeInputPoints.length >= 2 && lastSmoothedPoint) {
+			const tailPoint = strokeInputPoints[strokeInputPoints.length - 1];
+			fillLinearSegment(lastSmoothedPoint, tailPoint);
+		}
 		activeStroke = null;
 		lastSurfacePoint = null;
+		strokeInputPoints.length = 0;
+		lastSmoothedPoint = null;
 	}
 
 	function undoLastStroke() {
@@ -597,7 +646,7 @@
 		if (!isDrawing || !cameraLock) return;
 		const point = getWorldPoint(event);
 		if (!point) return;
-		fillStrokeSegment(point);
+		fillStrokeCurve(point);
 	}
 
 	function onPointerEnd(event: PointerEvent) {
