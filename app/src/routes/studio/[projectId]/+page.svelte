@@ -27,8 +27,8 @@
 		}
 	];
 
-	let brushSize = 40;
-	let brushStrength = 0.45;
+	let brushSize = 48;
+	let brushStrength = 0.28;
 	const paletteColors = [
 		'#111827',
 		'#334155',

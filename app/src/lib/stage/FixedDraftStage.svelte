@@ -47,8 +47,8 @@
 
 	const viewOrder: ViewId[] = ['front', 'right', 'top', 'left', 'back'];
 
-	export let brushSize = 40;
-	export let brushStrength = 0.45;
+export let brushSize = 48;
+export let brushStrength = 0.28;
 	export let brushColorHex = '#2563eb';
 	export let paletteColors: string[] = [];
 
@@ -156,8 +156,11 @@
 	const AUTO_FILL_MIN_STEP = 0.02;
 	const AUTO_FILL_MAX_SAMPLES = 2400;
 	const AUTO_FILL_MIN_AREA_FACTOR = 7;
+	const BRUSH_WIDTH_SCALE = 1.2;
+	const BRUSH_DEPTH_SCALE = 0.42;
+	const BRUSH_DEPOSIT_RADIUS_SCALE = 1.18;
 
-	$: brushRadius = 0.02 + (Math.max(1, Math.min(brushSize, 60)) / 60) * 0.18;
+	$: brushRadius = (0.02 + (Math.max(1, Math.min(brushSize, 60)) / 60) * 0.18) * BRUSH_WIDTH_SCALE;
 	$: brushRoughness = THREE.MathUtils.clamp(0.7 - brushStrength * 0.35, 0.2, 0.75);
 	$: quickPalette =
 		(paletteColors.length
@@ -591,8 +594,9 @@
 		}
 
 		const { u, v } = projectToActiveUV(point);
-		const layerStep = brushRadius * THREE.MathUtils.clamp(0.26 + brushStrength * 0.92, 0.26, 1.35);
-		const depositRadius = brushRadius * 1.1;
+		const layerGain = THREE.MathUtils.clamp(0.22 + brushStrength * 0.74, 0.22, 1.06);
+		const layerStep = brushRadius * BRUSH_DEPTH_SCALE * layerGain;
+		const depositRadius = brushRadius * BRUSH_DEPOSIT_RADIUS_SCALE;
 		const depositAmount = layerStep * 0.9;
 		const wetnessBoost = THREE.MathUtils.clamp(0.34 + brushStrength * 0.46, 0.2, 0.86);
 		const activeStrokeId = String(activeStroke.userData.strokeId ?? activeStroke.name);
