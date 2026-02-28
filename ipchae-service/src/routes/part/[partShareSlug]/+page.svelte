@@ -12,6 +12,10 @@
 	let share: PartShareView | null = null;
 	let loading = true;
 	let errorMessage = '';
+	let ogTitle = 'Part Share | made with IPCHAE';
+	let ogDescription = '이걸 이용해서 고쳐보시겠어요? made with IPCHAE';
+	let ogImage = `${base}/og/default-part.png`;
+	let ogUrl = page.url.href;
 
 	onMount(async () => {
 		const slug = page.params.partShareSlug ?? '';
@@ -28,7 +32,27 @@
 			errorMessage = error instanceof Error ? error.message : 'Import failed';
 		}
 	}
+
+	$: if (share) {
+		ogTitle = `${share.partName} | made with IPCHAE`;
+		ogDescription = `${share.category} · ${share.styleFamily} · 이걸 이용해서 고쳐보시겠어요?`;
+		ogUrl = `${page.url.origin}${base}/part/${share.partShareSlug}`;
+	}
 </script>
+
+<svelte:head>
+	<title>{ogTitle}</title>
+	<meta name="description" content={ogDescription} />
+	<meta property="og:type" content="website" />
+	<meta property="og:title" content={ogTitle} />
+	<meta property="og:description" content={ogDescription} />
+	<meta property="og:image" content={ogImage} />
+	<meta property="og:url" content={ogUrl} />
+	<meta name="twitter:card" content="summary_large_image" />
+	<meta name="twitter:title" content={ogTitle} />
+	<meta name="twitter:description" content={ogDescription} />
+	<meta name="twitter:image" content={ogImage} />
+</svelte:head>
 
 <main class="share-shell">
 	{#if loading}
@@ -113,4 +137,3 @@
 		font-weight: 700;
 	}
 </style>
-
