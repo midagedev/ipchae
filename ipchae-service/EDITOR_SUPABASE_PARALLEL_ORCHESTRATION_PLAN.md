@@ -199,3 +199,11 @@
    1. T1/T5: Validation + STL/PLY export 루프 연결
    2. T5/T6: Share/Collab Supabase 경로 우선 + 로컬 fallback 구조 적용
    3. T5: Cloudflare Worker 기반 동적 OG 템플릿 추가
+5. 2026-02-28 (commit `3e4ff89`)
+   1. T1 완료도 상승: Stage summary 추출 + validation report + STL/PLY download 연결
+   2. T4 완료도 상승: My Parts 저장/가시성 전환(private/unlisted/public) 연결
+   3. T3/T5/T6 진행: Share/Collab 경로 Supabase 우선 처리와 fallback 정리
+6. 2026-02-28 (commit `673e3b8`)
+   1. T5 진행: Studio에서 Share 링크 생성 + 클립보드 복사 + 로컬 share registry fallback
+7. 2026-02-28 (commit `fc8a9b5`)
+   1. T1 성능: Studio route에서 Stage 동적 import(lazy load) 적용
