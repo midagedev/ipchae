@@ -80,29 +80,29 @@
 	</header>
 
 	<section class="filter-grid">
-		<label>
+		<label for="parts-search">
 			<span>Search</span>
-			<input type="search" bind:value={search} placeholder="name or tag" />
+			<input id="parts-search" type="search" bind:value={search} placeholder="name or tag" />
 		</label>
-		<label>
+		<label for="parts-category">
 			<span>Category</span>
-			<select bind:value={category}>
+			<select id="parts-category" bind:value={category}>
 				{#each categories as item}
 					<option value={item}>{item}</option>
 				{/each}
 			</select>
 		</label>
-		<label>
+		<label for="parts-style">
 			<span>Style</span>
-			<select bind:value={styleFamily}>
+			<select id="parts-style" bind:value={styleFamily}>
 				{#each styles as item}
 					<option value={item}>{item}</option>
 				{/each}
 			</select>
 		</label>
-		<label>
+		<label for="parts-difficulty">
 			<span>Difficulty</span>
-			<select bind:value={difficulty}>
+			<select id="parts-difficulty" bind:value={difficulty}>
 				{#each difficulties as item}
 					<option value={item}>{item}</option>
 				{/each}
