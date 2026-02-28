@@ -142,13 +142,20 @@
 		[0, 1],
 		[0, -1]
 	];
-	const SAND_REPOSE_GRADIENT = Math.tan(THREE.MathUtils.degToRad(34));
-	const FLOW_RATE = 5.2;
-	const FLOW_ITERATIONS = 2;
-	const FLOW_HARDEN_TAU = 0.65;
+	const SAND_REPOSE_GRADIENT = Math.tan(THREE.MathUtils.degToRad(30));
+	const FLOW_RATE = 6.4;
+	const FLOW_ITERATIONS = 3;
+	const FLOW_HARDEN_TAU = 0.9;
 	const FLOW_MIN_WETNESS = 0.016;
-	const FLOW_MAX_TRANSFER_RATIO = 0.58;
-	const FLOW_CARRY_RATIO = 0.92;
+	const FLOW_MAX_TRANSFER_RATIO = 0.68;
+	const FLOW_CARRY_RATIO = 0.95;
+	const AUTO_FILL_MIN_POINTS = 16;
+	const AUTO_FILL_CLOSE_DISTANCE_FACTOR = 1.8;
+	const AUTO_FILL_CLOSE_DISTANCE_MIN = 0.12;
+	const AUTO_FILL_STEP_RATIO = 0.72;
+	const AUTO_FILL_MIN_STEP = 0.02;
+	const AUTO_FILL_MAX_SAMPLES = 2400;
+	const AUTO_FILL_MIN_AREA_FACTOR = 7;
 
 	$: brushRadius = 0.02 + (Math.max(1, Math.min(brushSize, 60)) / 60) * 0.18;
 	$: brushRoughness = THREE.MathUtils.clamp(0.7 - brushStrength * 0.35, 0.2, 0.75);
@@ -801,11 +808,86 @@
 		lastSmoothedPoint = endPoint;
 	}
 
+	function polygonSignedArea(points: Array<{ u: number; v: number }>) {
+		let sum = 0;
+		for (let i = 0; i < points.length; i += 1) {
+			const current = points[i];
+			const next = points[(i + 1) % points.length];
+			sum += current.u * next.v - next.u * current.v;
+		}
+		return sum * 0.5;
+	}
+
+	function pointInPolygon(u: number, v: number, polygon: Array<{ u: number; v: number }>) {
+		let inside = false;
+		for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i, i += 1) {
+			const pi = polygon[i];
+			const pj = polygon[j];
+			const intersects =
+				pi.v > v !== pj.v > v && u < ((pj.u - pi.u) * (v - pi.v)) / (pj.v - pi.v + 1e-9) + pi.u;
+			if (intersects) inside = !inside;
+		}
+		return inside;
+	}
+
+	function uvToWorldPoint(u: number, v: number) {
+		return stageTarget
+			.clone()
+			.addScaledVector(activeTangentU, u)
+			.addScaledVector(activeTangentV, v);
+	}
+
+	function runAutoFillForClosedStroke() {
+		if (strokeInputPoints.length < AUTO_FILL_MIN_POINTS) return;
+
+		const first = strokeInputPoints[0];
+		const last = strokeInputPoints[strokeInputPoints.length - 1];
+		const closeThreshold = Math.max(
+			brushRadius * AUTO_FILL_CLOSE_DISTANCE_FACTOR,
+			AUTO_FILL_CLOSE_DISTANCE_MIN
+		);
+		if (first.distanceTo(last) > closeThreshold) return;
+
+		const polygon = strokeInputPoints.map((point) => projectToActiveUV(point));
+		const area = Math.abs(polygonSignedArea(polygon));
+		const minArea = brushRadius * brushRadius * AUTO_FILL_MIN_AREA_FACTOR;
+		if (area < minArea) return;
+
+		let minU = Infinity;
+		let maxU = -Infinity;
+		let minV = Infinity;
+		let maxV = -Infinity;
+		for (const p of polygon) {
+			if (p.u < minU) minU = p.u;
+			if (p.u > maxU) maxU = p.u;
+			if (p.v < minV) minV = p.v;
+			if (p.v > maxV) maxV = p.v;
+		}
+
+		let step = Math.max(brushRadius * AUTO_FILL_STEP_RATIO, AUTO_FILL_MIN_STEP);
+		const boundsArea = Math.max(1e-6, (maxU - minU) * (maxV - minV));
+		while (boundsArea / (step * step) > AUTO_FILL_MAX_SAMPLES) {
+			step *= 1.18;
+		}
+
+		let filled = 0;
+		for (let v = minV; v <= maxV; v += step) {
+			for (let u = minU; u <= maxU; u += step) {
+				if (!pointInPolygon(u, v, polygon)) continue;
+				const point = uvToWorldPoint(u, v);
+				pushBrushDot(point, { force: true });
+				filled += 1;
+				if (filled >= AUTO_FILL_MAX_SAMPLES) return;
+			}
+		}
+	}
+
 	function finishStroke() {
 		if (activeStroke && strokeInputPoints.length >= 2 && lastSmoothedPoint) {
 			const tailPoint = strokeInputPoints[strokeInputPoints.length - 1];
 			fillLinearSegment(lastSmoothedPoint, tailPoint);
 		}
+		runAutoFillForClosedStroke();
 		activeStroke = null;
 		lastSurfacePoint = null;
 		strokeInputPoints.length = 0;
@@ -1090,9 +1172,9 @@
 
 			<p class="stage-help">
 				{#if isCoarsePointer}
-					{inputMode === 'draw' ? 'Draw 모드에서 터치 드로잉' : 'Pan 모드에서 터치 이동'} · Zoom +/- 버튼 사용
+					{inputMode === 'draw' ? 'Draw 모드에서 터치 드로잉' : 'Pan 모드에서 터치 이동'} · 닫힌 선 자동 면채움
 				{:else}
-					좌클릭 드로잉 · 우클릭 팬 · 휠 줌 · 드래그 이동 경로에 적층
+					좌클릭 드로잉 · 우클릭 팬 · 휠 줌 · 닫힌 선 자동 면채움
 				{/if}
 			</p>
 	</div>
