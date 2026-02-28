@@ -38,7 +38,7 @@
 		studioLastSyncedAt,
 		studioSyncStatus
 	} from '$lib/core/sync/scene-sync-service';
-	import FixedDraftStage from '$lib/stage/FixedDraftStage.svelte';
+	import type FixedDraftStageComponent from '$lib/stage/FixedDraftStage.svelte';
 
 	type StageSliceOverlay = {
 		id: string;
@@ -93,6 +93,9 @@
 	const MAX_SLICE_LAYERS = 12;
 	const AUTOSAVE_DEBOUNCE_MS = 2000;
 
+	type StageComponentType = typeof FixedDraftStageComponent;
+
+	let StageComponent: StageComponentType | null = null;
 	let stageRef: any = null;
 	let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
 	let hydrationDone = false;
@@ -152,11 +155,13 @@
 	onMount(async () => {
 		const projectId = page.params.projectId;
 		if (!projectId) return;
-		const [snapshot, catalog] = await Promise.all([
+		const [snapshot, catalog, stageModule] = await Promise.all([
 			loadStudioSnapshot(projectId),
-			loadStarterCatalog()
+			loadStarterCatalog(),
+			import('$lib/stage/FixedDraftStage.svelte')
 		]);
 		await hydrateGamification();
+		StageComponent = stageModule.default;
 		starterCatalog = catalog;
 		if (!selectedStarterTemplateId) {
 			selectedStarterTemplateId = starterCatalog.templates[0]?.id ?? '';
@@ -554,22 +559,27 @@
 
 		<section class="workspace-shell">
 				<div class="stage-canvas">
-					<FixedDraftStage
-						bind:this={stageRef}
-						bind:brushSize
-						bind:brushStrength
-						bind:brushColorHex
-						{paletteColors}
-						{autoFillClosedStroke}
-						{mirrorDraw}
-						{smoothMeshView}
-						sliceEnabled={stageSliceEnabled}
-						sliceDepth={activeSliceDepth}
-						sliceLayerOverlays={stageSliceOverlays}
-						drawLocked={activeLayerBlocked}
-						{drawTool}
-						showInternalChrome={false}
-					/>
+					{#if StageComponent}
+						<svelte:component
+							this={StageComponent}
+							bind:this={stageRef}
+							bind:brushSize
+							bind:brushStrength
+							bind:brushColorHex
+							{paletteColors}
+							{autoFillClosedStroke}
+							{mirrorDraw}
+							{smoothMeshView}
+							sliceEnabled={stageSliceEnabled}
+							sliceDepth={activeSliceDepth}
+							sliceLayerOverlays={stageSliceOverlays}
+							drawLocked={activeLayerBlocked}
+							{drawTool}
+							showInternalChrome={false}
+						/>
+					{:else}
+						<div class="stage-loading">Loading Stage...</div>
+					{/if}
 				</div>
 
 			<aside class="overlay-panel panel-left">
@@ -975,6 +985,19 @@
 	.stage-canvas {
 		position: absolute;
 		inset: 0;
+	}
+
+	.stage-loading {
+		position: absolute;
+		inset: 0;
+		display: grid;
+		place-items: center;
+		color: #b8cae8;
+		font-weight: 700;
+		font-size: 0.9rem;
+		letter-spacing: 0.04em;
+		background: radial-gradient(circle at 20% 20%, rgba(68, 94, 127, 0.3), transparent 46%),
+			#1b1f27;
 	}
 
 	.overlay-panel {
