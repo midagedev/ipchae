@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { base } from '$app/paths';
 	import { page } from '$app/state';
 	import FixedDraftStage from '$lib/stage/FixedDraftStage.svelte';
 
@@ -53,7 +54,7 @@
 	$: projectIdLabel = (page.params.projectId ?? 'local').slice(0, 8);
 
 	function createAnotherProject() {
-		void goto('/');
+		void goto(`${base}/`);
 	}
 </script>
 

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { base } from '$app/paths';
 
 	type StartMode = 'blank' | 'free-draw' | 'starter';
 
@@ -29,7 +30,7 @@
 
 	async function startProject(mode: StartMode) {
 		const projectId = crypto.randomUUID();
-		await goto(`/studio/${projectId}?mode=${mode}`);
+		await goto(`${base}/studio/${projectId}?mode=${mode}`);
 	}
 </script>
 

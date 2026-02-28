@@ -52,6 +52,12 @@
 	export let brushColorHex = '#2563eb';
 
 	type InputMode = 'draw' | 'pan';
+	type StrokeDot = {
+		position: THREE.Vector3;
+		radius: number;
+		view: ViewId;
+		strokeId: string;
+	};
 
 	let activeView: ViewId = 'front';
 	let cameraLock = true;
@@ -74,16 +80,20 @@
 
 	let guidePlane: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> | null = null;
 	const drawPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+	const activeNormal = new THREE.Vector3(...VIEW_CONFIGS.front.normal).normalize();
 	const raycaster = new THREE.Raycaster();
 	const pointer = new THREE.Vector2();
 	const stageTarget = new THREE.Vector3(0, 0, 0);
+	const tmpDelta = new THREE.Vector3();
+	const tmpLateral = new THREE.Vector3();
 
 	const strokeRoot = new THREE.Group();
 	const strokeHistory: THREE.Group[] = [];
+	const strokeDots: StrokeDot[] = [];
 	const unitSphere = new THREE.SphereGeometry(1, 14, 14);
 
 	let activeStroke: THREE.Group | null = null;
-	let lastDrawPoint: THREE.Vector3 | null = null;
+	let lastSurfacePoint: THREE.Vector3 | null = null;
 	let isDrawing = false;
 	let isPanning = false;
 	let panStartX = 0;
@@ -189,8 +199,8 @@
 	}
 
 	function syncDrawPlane() {
-		const normal = new THREE.Vector3(...VIEW_CONFIGS[activeView].normal).normalize();
-		drawPlane.setFromNormalAndCoplanarPoint(normal, stageTarget);
+		activeNormal.set(...VIEW_CONFIGS[activeView].normal).normalize();
+		drawPlane.setFromNormalAndCoplanarPoint(activeNormal, stageTarget);
 	}
 
 	function updateMainView(nextView: ViewId) {
@@ -246,16 +256,47 @@
 
 	function startStroke(point: THREE.Vector3) {
 		activeStroke = new THREE.Group();
-		activeStroke.name = `stroke-${Date.now()}`;
+		const strokeId = `stroke-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+		activeStroke.name = strokeId;
+		activeStroke.userData.strokeId = strokeId;
 		strokeRoot.add(activeStroke);
 		strokeHistory.push(activeStroke);
-		lastDrawPoint = null;
+		lastSurfacePoint = null;
 		pushBrushDot(point);
+	}
+
+	function getStackedHeight(basePoint: THREE.Vector3) {
+		const influenceRadius = brushRadius * 1.65;
+		const influenceRadiusSq = influenceRadius * influenceRadius;
+		let maxHeight = 0;
+
+		for (const dot of strokeDots) {
+			if (dot.view !== activeView) continue;
+
+			tmpDelta.subVectors(dot.position, basePoint);
+			const alongNormal = tmpDelta.dot(activeNormal);
+			tmpLateral.copy(tmpDelta).addScaledVector(activeNormal, -alongNormal);
+			if (tmpLateral.lengthSq() > influenceRadiusSq) continue;
+
+			const candidate = alongNormal + dot.radius * 0.42;
+			if (candidate > maxHeight) {
+				maxHeight = candidate;
+			}
+		}
+
+		return maxHeight;
 	}
 
 	function pushBrushDot(point: THREE.Vector3) {
 		if (!activeStroke) return;
-		if (lastDrawPoint && lastDrawPoint.distanceToSquared(point) < brushRadius * brushRadius * 0.45) return;
+		if (lastSurfacePoint && lastSurfacePoint.distanceToSquared(point) < brushRadius * brushRadius * 0.45) {
+			return;
+		}
+
+		const stackedHeight = getStackedHeight(point);
+		const layerStep = brushRadius * THREE.MathUtils.clamp(0.26 + brushStrength * 0.92, 0.26, 1.35);
+		const liftedPoint = point.clone().addScaledVector(activeNormal, stackedHeight + layerStep);
+		const strokeId = String(activeStroke.userData.strokeId ?? activeStroke.name);
 
 		const brushDot = new THREE.Mesh(
 			unitSphere,
@@ -265,23 +306,37 @@
 				metalness: 0.06,
 				transparent: true,
 				opacity: brushOpacity
-			})
+				})
 		);
-		brushDot.position.copy(point);
+		brushDot.position.copy(liftedPoint);
 		brushDot.scale.setScalar(brushRadius);
 		activeStroke.add(brushDot);
-		lastDrawPoint = point.clone();
+		strokeDots.push({
+			position: liftedPoint.clone(),
+			radius: brushRadius,
+			view: activeView,
+			strokeId
+		});
+		lastSurfacePoint = point.clone();
 	}
 
 	function finishStroke() {
 		activeStroke = null;
-		lastDrawPoint = null;
+		lastSurfacePoint = null;
 	}
 
 	function undoLastStroke() {
 		const latest = strokeHistory.pop();
 		if (!latest) return;
+		const strokeId = String(latest.userData.strokeId ?? latest.name);
 		strokeRoot.remove(latest);
+
+		for (let i = strokeDots.length - 1; i >= 0; i -= 1) {
+			if (strokeDots[i].strokeId === strokeId) {
+				strokeDots.splice(i, 1);
+			}
+		}
+
 		for (const child of latest.children) {
 			if (child instanceof THREE.Mesh) {
 				child.material.dispose();
@@ -506,7 +561,7 @@
 			{#if isCoarsePointer}
 				{inputMode === 'draw' ? 'Draw 모드에서 터치 드로잉' : 'Pan 모드에서 터치 이동'} · Zoom +/- 버튼 사용
 			{:else}
-				좌클릭 드로잉 · 우클릭 팬 · 휠 줌 (메인뷰 각도 고정)
+				좌클릭 드로잉 · 우클릭 팬 · 휠 줌 · 겹쳐 그리면 높이 적층
 			{/if}
 		</p>
 	</div>
