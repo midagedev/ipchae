@@ -97,11 +97,13 @@
 	};
 	const MAX_SLICE_LAYERS = 12;
 	const AUTOSAVE_DEBOUNCE_MS = 2000;
+	const UX_MODE_STORAGE_KEY = 'ipchae-studio-ux-mode-v1';
 
 	type StageComponentType = typeof FixedDraftStageComponent;
 
 	let StageComponent: StageComponentType | null = null;
 	let stageRef: any = null;
+	let beginnerMode = true;
 	let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
 	let hydrationDone = false;
 	let localSaveStatus: 'idle' | 'saving' | 'saved' | 'error' = 'idle';
@@ -163,6 +165,14 @@
 	onMount(async () => {
 		const projectId = page.params.projectId;
 		if (!projectId) return;
+		try {
+			const storedMode = localStorage.getItem(UX_MODE_STORAGE_KEY);
+			if (storedMode === 'advanced') {
+				beginnerMode = false;
+			}
+		} catch {
+			// localStorage access can fail in restricted contexts.
+		}
 		const [snapshot, catalog, stageModule] = await Promise.all([
 			loadStudioSnapshot(projectId),
 			loadStarterCatalog(),
@@ -443,6 +453,15 @@
 		void recordToolUsed('add-blob');
 	}
 
+	function toggleUxMode() {
+		beginnerMode = !beginnerMode;
+		try {
+			localStorage.setItem(UX_MODE_STORAGE_KEY, beginnerMode ? 'beginner' : 'advanced');
+		} catch {
+			// ignore storage failures; mode still applies for this session.
+		}
+	}
+
 	function triggerImport() {
 		importInputRef?.click();
 	}
@@ -586,6 +605,9 @@
 				<span class="mode-pill">{modeLabelMap[startMode] ?? 'Blank'}</span>
 				<span class="sync-pill">{localSaveLabel}</span>
 				<span class="sync-pill">{remoteSyncLabel}</span>
+				<button type="button" class="app-btn mode-toggle" on:click={toggleUxMode}>
+					{beginnerMode ? '초등 모드' : '고급 모드'}
+				</button>
 				<input
 					bind:this={importInputRef}
 					class="import-input"
@@ -593,15 +615,21 @@
 					accept=".stl,.ply,.obj,.glb"
 					on:change={onImportFileChange}
 				/>
-				<button type="button" class="app-btn" on:click={triggerImport}>Import</button>
-				<button type="button" class="app-btn" on:click={() => stageRef?.undoLastStroke?.()}>Undo</button>
-				<button type="button" class="app-btn" on:click={() => stageRef?.clearAllStrokes?.()}>Clear</button>
-				<button type="button" class="app-btn" on:click={zoomOut}>-</button>
-				<button type="button" class="app-btn" on:click={zoomIn}>+</button>
-				<button type="button" class="app-btn" on:click={() => stageRef?.resetMainView?.()}>Reset</button>
-				<button type="button" class="app-btn" on:click={saveCurrentPart}>Save Part</button>
-				<button type="button" class="app-btn" on:click={createShareLink}>Share</button>
-				<button type="button" class="app-btn primary" on:click={() => exportCurrent(exportFormat)}>Export</button>
+				{#if !beginnerMode}
+					<button type="button" class="app-btn" on:click={triggerImport}>Import</button>
+				{/if}
+				<button type="button" class="app-btn" on:click={() => stageRef?.undoLastStroke?.()}>실행취소</button>
+				<button type="button" class="app-btn" on:click={() => stageRef?.clearAllStrokes?.()}>지우기</button>
+				{#if !beginnerMode}
+					<button type="button" class="app-btn" on:click={zoomOut}>-</button>
+					<button type="button" class="app-btn" on:click={zoomIn}>+</button>
+					<button type="button" class="app-btn" on:click={() => stageRef?.resetMainView?.()}>Reset</button>
+					<button type="button" class="app-btn" on:click={saveCurrentPart}>Save Part</button>
+					<button type="button" class="app-btn" on:click={createShareLink}>Share</button>
+				{/if}
+				<button type="button" class="app-btn primary" on:click={() => exportCurrent(exportFormat)}>
+					{beginnerMode ? '내보내기' : 'Export'}
+				</button>
 			</div>
 		</header>
 
@@ -631,7 +659,17 @@
 				</div>
 
 			<aside class="overlay-panel panel-left">
-				<p class="panel-title">Tools</p>
+				<p class="panel-title">{beginnerMode ? '도구' : 'Tools'}</p>
+				{#if beginnerMode}
+					<div class="mini-block kid-guide">
+						<p class="mini-title">오늘의 순서</p>
+						<ol>
+							<li>브러시로 형태를 그려요</li>
+							<li>색을 골라 꾸며요</li>
+							<li>내보내기로 작품을 저장해요</li>
+						</ol>
+					</div>
+				{/if}
 				<div class="mini-block starter-block">
 					<p class="mini-title">Starter</p>
 					<select
@@ -647,169 +685,173 @@
 							{/each}
 						{/if}
 					</select>
-					<div class="starter-ratios">
-						<label for="starter-head">Head {starterHeadRatio.toFixed(2)}</label>
-						<input id="starter-head" type="range" min="1" max="2.1" step="0.01" bind:value={starterHeadRatio} />
-						<label for="starter-body">Body {starterBodyRatio.toFixed(2)}</label>
-						<input id="starter-body" type="range" min="0.7" max="1.4" step="0.01" bind:value={starterBodyRatio} />
-						<label for="starter-leg">Leg {starterLegRatio.toFixed(2)}</label>
-						<input id="starter-leg" type="range" min="0.45" max="1.25" step="0.01" bind:value={starterLegRatio} />
-					</div>
+					{#if !beginnerMode}
+						<div class="starter-ratios">
+							<label for="starter-head">Head {starterHeadRatio.toFixed(2)}</label>
+							<input id="starter-head" type="range" min="1" max="2.1" step="0.01" bind:value={starterHeadRatio} />
+							<label for="starter-body">Body {starterBodyRatio.toFixed(2)}</label>
+							<input id="starter-body" type="range" min="0.7" max="1.4" step="0.01" bind:value={starterBodyRatio} />
+							<label for="starter-leg">Leg {starterLegRatio.toFixed(2)}</label>
+							<input id="starter-leg" type="range" min="0.45" max="1.25" step="0.01" bind:value={starterLegRatio} />
+						</div>
+					{/if}
 					<button
 						type="button"
 						class="starter-apply-btn"
 						disabled={!selectedStarterTemplate}
 						on:click={() => selectedStarterTemplate && applyStarterTemplate(selectedStarterTemplate)}
 					>
-						Apply Starter
+						{beginnerMode ? '기본 캐릭터 넣기' : 'Apply Starter'}
 					</button>
 					{#if starterApplyNote}
 						<p class="starter-note">{starterApplyNote}</p>
 					{/if}
 				</div>
-				<div class="mini-block">
-					<p class="mini-title">View</p>
-					<div class="mini-segment" role="tablist" aria-label="View">
-						{#each viewTabs as view}
-							<button
-								type="button"
-								class="mini-btn {activeView === view.id ? 'active' : ''}"
-								on:click={() => selectView(view.id)}
-							>
-								{view.label}
-							</button>
-						{/each}
-					</div>
-				</div>
-				<div class="mini-block">
-					<p class="mini-title">Input</p>
-					<div class="mini-segment" role="tablist" aria-label="Input mode">
-						<button
-							type="button"
-							class="mini-btn {inputMode === 'draw' ? 'active' : ''}"
-							on:click={() => selectInputMode('draw')}
-						>
-							Draw
-						</button>
-						<button
-							type="button"
-							class="mini-btn {inputMode === 'pan' ? 'active' : ''}"
-							on:click={() => selectInputMode('pan')}
-						>
-							Pan
-						</button>
-					</div>
-				</div>
-				<div class="mini-block slicer-block">
-					<p class="mini-title">Slicer</p>
-					<label class="toggle-row" for="slice-enabled">
-						<span>Slice Mode</span>
-						<input id="slice-enabled" type="checkbox" bind:checked={sliceEnabled} />
-					</label>
-					<div class="layer-toolbar">
-						<button type="button" class="layer-add-btn" on:click={addSliceLayer} disabled={sliceLayers.length >= MAX_SLICE_LAYERS}>
-							+ Layer
-						</button>
-						<span class="layer-count">{sliceLayers.length}/{MAX_SLICE_LAYERS}</span>
-					</div>
-					<div class="layer-list" role="list" aria-label="Slice layers">
-						{#each sliceLayers as layer}
-							<div class="layer-item {activeSliceLayerId === layer.id ? 'active' : ''}" role="listitem">
+				{#if !beginnerMode}
+					<div class="mini-block">
+						<p class="mini-title">View</p>
+						<div class="mini-segment" role="tablist" aria-label="View">
+							{#each viewTabs as view}
 								<button
 									type="button"
-									class="layer-main"
-									on:click={() => selectSliceLayer(layer.id)}
-									aria-label={`Select ${layer.name}`}
+									class="mini-btn {activeView === view.id ? 'active' : ''}"
+									on:click={() => selectView(view.id)}
 								>
-									<span class="layer-dot" style={`--layer-color:${layer.colorHex};`}></span>
-									<span class="layer-name">{layer.name}</span>
-									<span class="layer-meta">{layer.axis.toUpperCase()} {layer.depth.toFixed(2)}</span>
+									{view.label}
 								</button>
-								<div class="layer-actions">
-									<button
-										type="button"
-										class="layer-action-btn {layer.visible ? 'on' : ''}"
-										on:click={() => toggleSliceLayerVisible(layer.id)}
-										aria-label={layer.visible ? 'Hide layer' : 'Show layer'}
-									>
-										{layer.visible ? 'Hide' : 'Show'}
-									</button>
-									<button
-										type="button"
-										class="layer-action-btn {layer.locked ? 'on' : ''}"
-										on:click={() => toggleSliceLayerLock(layer.id)}
-										aria-label={layer.locked ? 'Unlock layer' : 'Lock layer'}
-									>
-										{layer.locked ? 'Unlock' : 'Lock'}
-									</button>
-									<button
-										type="button"
-										class="layer-action-btn danger"
-										on:click={() => removeSliceLayer(layer.id)}
-										disabled={sliceLayers.length <= 1}
-										aria-label="Remove layer"
-									>
-										-
-									</button>
-								</div>
-							</div>
-						{/each}
+							{/each}
+						</div>
 					</div>
-					<div class="mini-segment" role="tablist" aria-label="Slice axis">
-						{#each sliceAxisTabs as axis}
+					<div class="mini-block">
+						<p class="mini-title">Input</p>
+						<div class="mini-segment" role="tablist" aria-label="Input mode">
 							<button
 								type="button"
-								class="mini-btn {activeSliceAxis === axis.id ? 'active' : ''}"
-								on:click={() => selectSliceAxis(axis.id)}
-								disabled={!activeSliceLayer}
+								class="mini-btn {inputMode === 'draw' ? 'active' : ''}"
+								on:click={() => selectInputMode('draw')}
 							>
-								{axis.label}
+								Draw
 							</button>
-						{/each}
+							<button
+								type="button"
+								class="mini-btn {inputMode === 'pan' ? 'active' : ''}"
+								on:click={() => selectInputMode('pan')}
+							>
+								Pan
+							</button>
+						</div>
 					</div>
-					<div class="slice-row">
-						<button
-							type="button"
-							class="slice-step"
-							on:click={() => nudgeSlice(-0.25)}
-							disabled={!sliceEnabled}
-							aria-label="Slice down"
-						>
-							-
-						</button>
-						<input
-							class="slice-range"
-							type="range"
-							min="-6"
-							max="6"
-							step="0.02"
-							value={activeSliceDepth}
-							on:input={(event) => setActiveSliceDepth(Number((event.currentTarget as HTMLInputElement).value))}
-							disabled={!sliceEnabled}
-						/>
-						<button
-							type="button"
-							class="slice-step"
-							on:click={() => nudgeSlice(0.25)}
-							disabled={!sliceEnabled}
-							aria-label="Slice up"
-						>
-							+
-						</button>
+					<div class="mini-block slicer-block">
+						<p class="mini-title">Slicer</p>
+						<label class="toggle-row" for="slice-enabled">
+							<span>Slice Mode</span>
+							<input id="slice-enabled" type="checkbox" bind:checked={sliceEnabled} />
+						</label>
+						<div class="layer-toolbar">
+							<button type="button" class="layer-add-btn" on:click={addSliceLayer} disabled={sliceLayers.length >= MAX_SLICE_LAYERS}>
+								+ Layer
+							</button>
+							<span class="layer-count">{sliceLayers.length}/{MAX_SLICE_LAYERS}</span>
+						</div>
+						<div class="layer-list" role="list" aria-label="Slice layers">
+							{#each sliceLayers as layer}
+								<div class="layer-item {activeSliceLayerId === layer.id ? 'active' : ''}" role="listitem">
+									<button
+										type="button"
+										class="layer-main"
+										on:click={() => selectSliceLayer(layer.id)}
+										aria-label={`Select ${layer.name}`}
+									>
+										<span class="layer-dot" style={`--layer-color:${layer.colorHex};`}></span>
+										<span class="layer-name">{layer.name}</span>
+										<span class="layer-meta">{layer.axis.toUpperCase()} {layer.depth.toFixed(2)}</span>
+									</button>
+									<div class="layer-actions">
+										<button
+											type="button"
+											class="layer-action-btn {layer.visible ? 'on' : ''}"
+											on:click={() => toggleSliceLayerVisible(layer.id)}
+											aria-label={layer.visible ? 'Hide layer' : 'Show layer'}
+										>
+											{layer.visible ? 'Hide' : 'Show'}
+										</button>
+										<button
+											type="button"
+											class="layer-action-btn {layer.locked ? 'on' : ''}"
+											on:click={() => toggleSliceLayerLock(layer.id)}
+											aria-label={layer.locked ? 'Unlock layer' : 'Lock layer'}
+										>
+											{layer.locked ? 'Unlock' : 'Lock'}
+										</button>
+										<button
+											type="button"
+											class="layer-action-btn danger"
+											on:click={() => removeSliceLayer(layer.id)}
+											disabled={sliceLayers.length <= 1}
+											aria-label="Remove layer"
+										>
+											-
+										</button>
+									</div>
+								</div>
+							{/each}
+						</div>
+						<div class="mini-segment" role="tablist" aria-label="Slice axis">
+							{#each sliceAxisTabs as axis}
+								<button
+									type="button"
+									class="mini-btn {activeSliceAxis === axis.id ? 'active' : ''}"
+									on:click={() => selectSliceAxis(axis.id)}
+									disabled={!activeSliceLayer}
+								>
+									{axis.label}
+								</button>
+							{/each}
+						</div>
+						<div class="slice-row">
+							<button
+								type="button"
+								class="slice-step"
+								on:click={() => nudgeSlice(-0.25)}
+								disabled={!sliceEnabled}
+								aria-label="Slice down"
+							>
+								-
+							</button>
+							<input
+								class="slice-range"
+								type="range"
+								min="-6"
+								max="6"
+								step="0.02"
+								value={activeSliceDepth}
+								on:input={(event) => setActiveSliceDepth(Number((event.currentTarget as HTMLInputElement).value))}
+								disabled={!sliceEnabled}
+							/>
+							<button
+								type="button"
+								class="slice-step"
+								on:click={() => nudgeSlice(0.25)}
+								disabled={!sliceEnabled}
+								aria-label="Slice up"
+							>
+								+
+							</button>
+						</div>
+						<div class="slice-meta">
+							<span>{activeSliceAxis.toUpperCase()} {activeSliceDepth.toFixed(2)}</span>
+							<button
+								type="button"
+								class="slice-reset"
+								on:click={() => setActiveSliceDepth(0)}
+								disabled={!sliceEnabled}
+							>
+								Reset
+							</button>
+						</div>
 					</div>
-					<div class="slice-meta">
-						<span>{activeSliceAxis.toUpperCase()} {activeSliceDepth.toFixed(2)}</span>
-						<button
-							type="button"
-							class="slice-reset"
-							on:click={() => setActiveSliceDepth(0)}
-							disabled={!sliceEnabled}
-						>
-							Reset
-						</button>
-					</div>
-				</div>
-				<div class="tool-stack">
+				{/if}
+				<div class="tool-stack {beginnerMode ? 'beginner' : ''}">
 						{#each drawTools as tool}
 							<button
 								type="button"
@@ -821,75 +863,89 @@
 					{/each}
 				</div>
 				<div class="toggle-stack">
-					<label class="toggle-row" for="auto-fill">
-						<span>Auto Fill</span>
-						<input id="auto-fill" type="checkbox" bind:checked={autoFillClosedStroke} />
-					</label>
+					{#if !beginnerMode}
+						<label class="toggle-row" for="auto-fill">
+							<span>Auto Fill</span>
+							<input id="auto-fill" type="checkbox" bind:checked={autoFillClosedStroke} />
+						</label>
+					{/if}
 					<label class="toggle-row" for="mirror-draw">
 						<span>Mirror X</span>
 						<input id="mirror-draw" type="checkbox" bind:checked={mirrorDraw} />
 					</label>
-					<label class="toggle-row" for="smooth-mesh">
-						<span>Smooth Mesh</span>
-						<input id="smooth-mesh" type="checkbox" bind:checked={smoothMeshView} />
-					</label>
+					{#if !beginnerMode}
+						<label class="toggle-row" for="smooth-mesh">
+							<span>Smooth Mesh</span>
+							<input id="smooth-mesh" type="checkbox" bind:checked={smoothMeshView} />
+						</label>
+					{/if}
 				</div>
 			</aside>
 
 			<aside class="overlay-panel panel-right">
-				<p class="panel-title">Brush</p>
-				<label class="field-label" for="size">Size</label>
+				<p class="panel-title">{beginnerMode ? '브러시' : 'Brush'}</p>
+				<label class="field-label" for="size">{beginnerMode ? '굵기' : 'Size'}</label>
 				<input id="size" type="range" min="1" max="60" bind:value={brushSize} />
 				<p class="field-value">{Math.round(brushSize)}</p>
 
-				<label class="field-label" for="strength">Depth</label>
-				<input id="strength" type="range" min="0.05" max="1" step="0.01" bind:value={brushStrength} />
-				<p class="field-value">{brushStrengthPercent}%</p>
+				{#if !beginnerMode}
+					<label class="field-label" for="strength">Depth</label>
+					<input id="strength" type="range" min="0.05" max="1" step="0.01" bind:value={brushStrength} />
+					<p class="field-value">{brushStrengthPercent}%</p>
+				{/if}
 
-				<label class="field-label" for="brush-color">Color</label>
+				<label class="field-label" for="brush-color">{beginnerMode ? '색상' : 'Color'}</label>
 				<div class="color-row">
 					<input id="brush-color" class="color-input" type="color" bind:value={brushColorHex} />
 					<span class="hex-code">{brushColorHex.toUpperCase()}</span>
 				</div>
 
 				<div class="export-block">
-					<p class="field-label">Validation & Export</p>
-					<div class="export-row">
-						<select bind:value={exportFormat}>
-							<option value="stl">STL</option>
-							<option value="ply">PLY</option>
-						</select>
-						<button type="button" class="mini-export-btn" on:click={runValidation}>Validate</button>
-						<button type="button" class="mini-export-btn primary" on:click={() => exportCurrent(exportFormat)}>
-							Export
+					<p class="field-label">{beginnerMode ? '작품 저장' : 'Validation & Export'}</p>
+					{#if beginnerMode}
+						<button type="button" class="mini-export-btn primary beginner-export" on:click={() => exportCurrent('stl')}>
+							STL 내보내기
 						</button>
-					</div>
-					<p class="field-value">{validationSummaryLabel}</p>
-					{#if validationReport && validationReport.all.length > 0}
-						<ul class="validation-list">
-							{#each validationReport.all as issue}
-								<li class={issue.severity}>{issue.code}: {issue.message}</li>
-							{/each}
-						</ul>
+					{:else}
+						<div class="export-row">
+							<select bind:value={exportFormat}>
+								<option value="stl">STL</option>
+								<option value="ply">PLY</option>
+							</select>
+							<button type="button" class="mini-export-btn" on:click={runValidation}>Validate</button>
+							<button type="button" class="mini-export-btn primary" on:click={() => exportCurrent(exportFormat)}>
+								Export
+							</button>
+						</div>
+						<p class="field-value">{validationSummaryLabel}</p>
+						{#if validationReport && validationReport.all.length > 0}
+							<ul class="validation-list">
+								{#each validationReport.all as issue}
+									<li class={issue.severity}>{issue.code}: {issue.message}</li>
+								{/each}
+							</ul>
+						{/if}
 					{/if}
 					{#if exportStatus}
 						<p class="export-status">{exportStatus}</p>
 					{/if}
-					{#if partSaveStatus}
-						<p class="export-status">{partSaveStatus}</p>
-					{/if}
-					{#if shareStatus}
-						<p class="export-status">{shareStatus}</p>
-					{/if}
-					{#if importStatus}
-						<p class="export-status">{importStatus}</p>
-					{/if}
-					{#if importSummary && importSummary.warnings.length > 0}
-						<ul class="validation-list">
-							{#each importSummary.warnings as warning}
-								<li class="warning">{warning}</li>
-							{/each}
-						</ul>
+					{#if !beginnerMode}
+						{#if partSaveStatus}
+							<p class="export-status">{partSaveStatus}</p>
+						{/if}
+						{#if shareStatus}
+							<p class="export-status">{shareStatus}</p>
+						{/if}
+						{#if importStatus}
+							<p class="export-status">{importStatus}</p>
+						{/if}
+						{#if importSummary && importSummary.warnings.length > 0}
+							<ul class="validation-list">
+								{#each importSummary.warnings as warning}
+									<li class="warning">{warning}</li>
+								{/each}
+							</ul>
+						{/if}
 					{/if}
 				</div>
 			</aside>
@@ -1039,6 +1095,12 @@
 		color: #f9fcff;
 	}
 
+	.app-btn.mode-toggle {
+		border-color: rgba(253, 230, 138, 0.7);
+		background: rgba(146, 64, 14, 0.76);
+		color: #fff7dd;
+	}
+
 	.workspace-shell {
 		position: relative;
 		min-height: 0;
@@ -1092,6 +1154,22 @@
 		display: grid;
 		gap: 6px;
 		margin-bottom: 10px;
+	}
+
+	.kid-guide {
+		padding: 8px;
+		border: 1px solid rgba(253, 230, 138, 0.45);
+		border-radius: 10px;
+		background: rgba(120, 53, 15, 0.32);
+	}
+
+	.kid-guide ol {
+		margin: 0;
+		padding-left: 18px;
+		display: grid;
+		gap: 3px;
+		font-size: 0.72rem;
+		color: #fff4cf;
 	}
 
 	.starter-block {
@@ -1349,6 +1427,11 @@
 		gap: 6px;
 	}
 
+	.tool-stack.beginner .tool-btn {
+		height: 42px;
+		font-size: 0.9rem;
+	}
+
 	.tool-btn {
 		height: 34px;
 		padding: 0 10px;
@@ -1466,6 +1549,11 @@
 	.mini-export-btn.primary {
 		border-color: rgba(96, 169, 255, 0.82);
 		background: rgba(35, 87, 160, 0.84);
+	}
+
+	.beginner-export {
+		height: 36px;
+		font-size: 0.8rem;
 	}
 
 	.validation-list {
