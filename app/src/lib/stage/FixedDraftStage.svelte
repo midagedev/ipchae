@@ -47,14 +47,19 @@
 
 	const viewOrder: ViewId[] = ['front', 'right', 'top', 'left', 'back'];
 
-export let brushSize = 48;
-export let brushStrength = 0.28;
+	export let brushSize = 20;
+	export let brushStrength = 0.28;
 	export let brushColorHex = '#2563eb';
 	export let paletteColors: string[] = [];
+	export let autoFillClosedStroke = false;
+	export let mirrorDraw = false;
+	export let drawTool: DrawTool = 'free-draw';
 
+	type DrawTool = 'free-draw' | 'fill' | 'erase';
 	type InputMode = 'draw' | 'pan';
 	type BrushDotMesh = THREE.Mesh<THREE.SphereGeometry, THREE.MeshStandardMaterial>;
 	type StrokeDot = {
+		id: string;
 		mesh: BrushDotMesh;
 		basePoint: THREE.Vector3;
 		position: THREE.Vector3;
@@ -67,6 +72,21 @@ export let brushStrength = 0.28;
 		view: ViewId;
 		strokeId: string;
 	};
+	type EraseChange = {
+		dotId: string;
+		beforeAmount: number;
+		afterAmount: number;
+	};
+	type HistoryEntry =
+		| {
+				kind: 'draw';
+				stroke: THREE.Group;
+				strokeId: string;
+		  }
+		| {
+				kind: 'erase';
+				changes: EraseChange[];
+		  };
 
 	let activeView: ViewId = 'front';
 	let cameraLock = true;
@@ -98,9 +118,10 @@ export let brushStrength = 0.28;
 	const pointer = new THREE.Vector2();
 	const stageTarget = new THREE.Vector3(0, 0, 0);
 	const tmpSampleDelta = new THREE.Vector3();
+	const tmpEraseDelta = new THREE.Vector3();
 
 	const strokeRoot = new THREE.Group();
-	const strokeHistory: THREE.Group[] = [];
+	const actionHistory: HistoryEntry[] = [];
 	const strokeDots: StrokeDot[] = [];
 	const stackHeightMaps: Record<ViewId, Map<string, number>> = {
 		front: new Map(),
@@ -124,6 +145,13 @@ export let brushStrength = 0.28;
 	let lastSmoothedPoint: THREE.Vector3 | null = null;
 	let strokeSupportMap: Map<string, number> | null = null;
 	let strokeSupportView: ViewId | null = null;
+	let activeStrokeTool: DrawTool = 'free-draw';
+	let lastEraseSurfacePoint: THREE.Vector3 | null = null;
+	let lastRawStrokePoint: THREE.Vector3 | null = null;
+	let strokeArcCarry = 0;
+	let flowPauseSec = 0;
+	let eraseDotSeq = 0;
+	const pendingEraseChanges = new Map<string, EraseChange>();
 	let isDrawing = false;
 	let isPanning = false;
 	let panStartX = 0;
@@ -133,9 +161,11 @@ export let brushStrength = 0.28;
 	const MIN_ZOOM = 0.55;
 	const MAX_ZOOM = 6;
 	const STACK_CELL_SIZE = 0.1;
-	const PATH_SAMPLE_STEP_RATIO = 0.45;
-	const MIN_PATH_SAMPLE_STEP = 0.012;
-	const MAX_PATH_STEPS = 160;
+	const PATH_SAMPLE_STEP_RATIO = 0.3;
+	const MIN_PATH_SAMPLE_STEP = 0.009;
+	const MAX_PATH_STEPS = 260;
+	const ARC_RESAMPLE_STEP_RATIO = 0.22;
+	const ARC_RESAMPLE_MIN_STEP = 0.006;
 	const FLOW_NEIGHBORS: Array<[number, number]> = [
 		[1, 0],
 		[-1, 0],
@@ -149,6 +179,7 @@ export let brushStrength = 0.28;
 	const FLOW_MIN_WETNESS = 0.016;
 	const FLOW_MAX_TRANSFER_RATIO = 0.68;
 	const FLOW_CARRY_RATIO = 0.95;
+	const FLOW_PAUSE_AFTER_STROKE_SEC = 0.16;
 	const AUTO_FILL_MIN_POINTS = 16;
 	const AUTO_FILL_CLOSE_DISTANCE_FACTOR = 1.8;
 	const AUTO_FILL_CLOSE_DISTANCE_MIN = 0.12;
@@ -159,6 +190,22 @@ export let brushStrength = 0.28;
 	const BRUSH_WIDTH_SCALE = 1.2;
 	const BRUSH_DEPTH_SCALE = 0.42;
 	const BRUSH_DEPOSIT_RADIUS_SCALE = 1.18;
+	const FILL_TOOL_RADIUS_SCALE = 1.34;
+	const FILL_TOOL_DEPTH_SCALE = 0.62;
+	const FILL_TOOL_RADIUS_SPREAD = 1.35;
+	const FILL_TOOL_SPACING_RATIO = 0.1;
+	const FILL_TOOL_STEP_SCALE = 0.72;
+	const STAMP_DEPTH_BOOST = 2.1;
+	const STAMP_RADIUS_SHRINK = 0.84;
+	const STAMP_WETNESS_SCALE = 0.38;
+	const ERASER_RADIUS_SCALE = 1.4;
+	const ERASER_DEPTH_RANGE_SCALE = 1.7;
+	const ERASER_POWER_SCALE = 0.38;
+	const ERASER_POINT_SPACING_RATIO = 0.16;
+	const ERASER_SEGMENT_STEP_RATIO = 0.4;
+	const MIRROR_AXIS_EPSILON_SQ = 1e-8;
+	const CROSS_VIEW_SUPPORT_RADIUS_SCALE = 0.72;
+	const CROSS_VIEW_SUPPORT_HEADROOM_SCALE = 0.95;
 
 	$: brushRadius = (0.02 + (Math.max(1, Math.min(brushSize, 60)) / 60) * 0.18) * BRUSH_WIDTH_SCALE;
 	$: brushRoughness = THREE.MathUtils.clamp(0.7 - brushStrength * 0.35, 0.2, 0.75);
@@ -258,8 +305,10 @@ export let brushStrength = 0.28;
 		}
 
 		const normal = new THREE.Vector3(...normalTuple).normalize();
+		const guideTangentV = activeTangentV.clone().normalize();
+		const guideTangentU = new THREE.Vector3().crossVectors(guideTangentV, normal).normalize();
 		const guideRotation = new THREE.Quaternion().setFromRotationMatrix(
-			new THREE.Matrix4().makeBasis(activeTangentU.clone(), activeTangentV.clone(), activeNormal.clone())
+			new THREE.Matrix4().makeBasis(guideTangentU, guideTangentV, normal)
 		);
 		guidePlane = new THREE.Mesh(
 			new THREE.PlaneGeometry(16, 16),
@@ -398,20 +447,29 @@ export let brushStrength = 0.28;
 		return raycaster.ray.intersectPlane(drawPlane, hit) ? hit : null;
 	}
 
+	function nextDotId() {
+		eraseDotSeq += 1;
+		return `dot-${eraseDotSeq}`;
+	}
+
 	function startStroke(point: THREE.Vector3) {
+		pendingEraseChanges.clear();
+		lastEraseSurfacePoint = null;
 		activeStroke = new THREE.Group();
 		const strokeId = `stroke-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 		activeStroke.name = strokeId;
 		activeStroke.userData.strokeId = strokeId;
 		strokeRoot.add(activeStroke);
-		strokeHistory.push(activeStroke);
+		actionHistory.push({ kind: 'draw', stroke: activeStroke, strokeId });
 		strokeSupportView = activeView;
 		strokeSupportMap = new Map(stackHeightMaps[activeView]);
 		lastSurfacePoint = null;
+		lastRawStrokePoint = point.clone();
+		strokeArcCarry = 0;
 		strokeInputPoints.length = 0;
 		strokeInputPoints.push(point.clone());
 		lastSmoothedPoint = point.clone();
-		pushBrushDot(point);
+		pushBrushDotWithMirror(point, { stamp: true });
 	}
 
 	function toCell(value: number) {
@@ -427,6 +485,12 @@ export let brushStrength = 0.28;
 			u: point.dot(activeTangentU),
 			v: point.dot(activeTangentV)
 		};
+	}
+
+	function mirrorAcrossVerticalAxis(point: THREE.Vector3) {
+		const offsetFromCenter = point.clone().sub(stageTarget);
+		const axisDistance = offsetFromCenter.dot(activeTangentU);
+		return point.clone().addScaledVector(activeTangentU, -2 * axisDistance);
 	}
 
 	function sampleHeightFromMap(map: Map<string, number>, u: number, v: number) {
@@ -463,18 +527,25 @@ export let brushStrength = 0.28;
 	function sampleTopFromExistingDots(basePoint: THREE.Vector3, normal: THREE.Vector3, excludeStrokeId?: string) {
 		let maxHeight = 0;
 		for (const dot of strokeDots) {
+			if (dot.depositAmount <= 1e-6) continue;
 			if (excludeStrokeId && dot.strokeId === excludeStrokeId) continue;
 
 			tmpSampleDelta.subVectors(dot.position, basePoint);
 			const along = tmpSampleDelta.dot(normal);
 			const radialSq = Math.max(0, tmpSampleDelta.lengthSq() - along * along);
-			const radiusSq = dot.radius * dot.radius;
+			const supportRadius = Math.max(
+				dot.depositRadius * CROSS_VIEW_SUPPORT_RADIUS_SCALE,
+				dot.radius * 0.42
+			);
+			const radiusSq = supportRadius * supportRadius;
 			if (radialSq > radiusSq) continue;
 
 			const cap = Math.sqrt(Math.max(0, radiusSq - radialSq));
 			const candidate = along + cap;
-			if (candidate > maxHeight) {
-				maxHeight = candidate;
+			const maxHeadroom = dot.height + dot.depositAmount * CROSS_VIEW_SUPPORT_HEADROOM_SCALE;
+			const clampedCandidate = Math.min(candidate, maxHeadroom);
+			if (clampedCandidate > maxHeight) {
+				maxHeight = clampedCandidate;
 			}
 		}
 		return maxHeight;
@@ -554,6 +625,12 @@ export let brushStrength = 0.28;
 	}
 
 	function refreshDotHeight(dot: StrokeDot) {
+		if (dot.depositAmount <= 1e-6) {
+			dot.height = 0;
+			dot.mesh.visible = false;
+			return;
+		}
+		dot.mesh.visible = true;
 		const normal = getViewNormal(dot.view);
 		const currentHeight = sampleHeight(dot.view, dot.u, dot.v);
 		dot.height = currentHeight;
@@ -581,24 +658,39 @@ export let brushStrength = 0.28;
 			wetnessMaps[view].clear();
 		}
 		for (const dot of strokeDots) {
+			if (dot.depositAmount <= 1e-6) continue;
 			depositHeight(dot.view, dot.u, dot.v, dot.depositRadius, dot.depositAmount);
 		}
 	}
 
-	function pushBrushDot(point: THREE.Vector3, options?: { force?: boolean }) {
+	function pushBrushDot(point: THREE.Vector3, options?: { force?: boolean; stamp?: boolean }) {
 		if (!activeStroke) return;
 		const force = options?.force ?? false;
-		const minSpacing = brushRadius * 0.28;
+		const stamp = options?.stamp ?? false;
+		const usingFillTool = activeStrokeTool === 'fill';
+		const toolRadius = brushRadius * (usingFillTool ? FILL_TOOL_RADIUS_SCALE : 1);
+		const minSpacing = toolRadius * (usingFillTool ? FILL_TOOL_SPACING_RATIO : 0.16);
 		if (!force && lastSurfacePoint && lastSurfacePoint.distanceToSquared(point) < minSpacing * minSpacing) {
 			return;
 		}
 
 		const { u, v } = projectToActiveUV(point);
 		const layerGain = THREE.MathUtils.clamp(0.22 + brushStrength * 0.74, 0.22, 1.06);
-		const layerStep = brushRadius * BRUSH_DEPTH_SCALE * layerGain;
-		const depositRadius = brushRadius * BRUSH_DEPOSIT_RADIUS_SCALE;
+		const depthScale = stamp ? STAMP_DEPTH_BOOST : 1;
+		const stampRadiusScale = stamp ? STAMP_RADIUS_SHRINK : 1;
+		const layerStep =
+			toolRadius * BRUSH_DEPTH_SCALE * layerGain * (usingFillTool ? FILL_TOOL_DEPTH_SCALE : 1) * depthScale;
+		const depositRadius =
+			toolRadius *
+			BRUSH_DEPOSIT_RADIUS_SCALE *
+			(usingFillTool ? FILL_TOOL_RADIUS_SPREAD : 1) *
+			stampRadiusScale;
 		const depositAmount = layerStep * 0.9;
-		const wetnessBoost = THREE.MathUtils.clamp(0.34 + brushStrength * 0.46, 0.2, 0.86);
+		const wetnessBoost = THREE.MathUtils.clamp(
+			(0.34 + brushStrength * 0.46) * (stamp ? STAMP_WETNESS_SCALE : 1),
+			0.08,
+			0.86
+		);
 		const activeStrokeId = String(activeStroke.userData.strokeId ?? activeStroke.name);
 		const baseFromMap = sampleStrokeSupportHeight(activeView, u, v);
 		const baseFromExistingDots = sampleTopFromExistingDots(point, activeNormal, activeStrokeId);
@@ -622,22 +714,32 @@ export let brushStrength = 0.28;
 			})
 		);
 		brushDot.position.copy(liftedPoint);
-		brushDot.scale.setScalar(brushRadius);
+		brushDot.scale.setScalar(toolRadius);
+		brushDot.visible = true;
 		activeStroke.add(brushDot);
 		strokeDots.push({
+			id: nextDotId(),
 			mesh: brushDot,
 			basePoint: point.clone(),
 			position: liftedPoint.clone(),
 			u,
 			v,
 			height: dotHeight,
-			radius: brushRadius,
+			radius: toolRadius,
 			depositRadius,
 			depositAmount,
 			view: activeView,
 			strokeId
 		});
 		lastSurfacePoint = point.clone();
+	}
+
+	function pushBrushDotWithMirror(point: THREE.Vector3, options?: { force?: boolean; stamp?: boolean }) {
+		pushBrushDot(point, options);
+		if (!mirrorDraw) return;
+		const mirroredPoint = mirrorAcrossVerticalAxis(point);
+		if (mirroredPoint.distanceToSquared(point) <= MIRROR_AXIS_EPSILON_SQ) return;
+		pushBrushDot(mirroredPoint, options);
 	}
 
 	function parseCellKey(key: string): [number, number] {
@@ -756,8 +858,38 @@ export let brushStrength = 0.28;
 	}
 
 	function resolveSegmentSteps(length: number) {
-		const stepLength = Math.max(brushRadius * PATH_SAMPLE_STEP_RATIO, MIN_PATH_SAMPLE_STEP);
-		return Math.min(MAX_PATH_STEPS, Math.max(1, Math.ceil(length / stepLength)));
+		const toolStepScale = activeStrokeTool === 'fill' ? FILL_TOOL_STEP_SCALE : 1;
+		const stepLength = Math.max(brushRadius * PATH_SAMPLE_STEP_RATIO * toolStepScale, MIN_PATH_SAMPLE_STEP);
+		const maxSteps = activeStrokeTool === 'fill' ? Math.round(MAX_PATH_STEPS * 1.5) : MAX_PATH_STEPS;
+		return Math.min(maxSteps, Math.max(1, Math.ceil(length / stepLength)));
+	}
+
+	function resolveArcResampleStep() {
+		const toolStepScale = activeStrokeTool === 'fill' ? FILL_TOOL_STEP_SCALE : 1;
+		return Math.max(brushRadius * ARC_RESAMPLE_STEP_RATIO * toolStepScale, ARC_RESAMPLE_MIN_STEP);
+	}
+
+	function appendStrokePointWithArcResample(toPoint: THREE.Vector3) {
+		if (!lastRawStrokePoint) {
+			lastRawStrokePoint = toPoint.clone();
+			return;
+		}
+		const fromPoint = lastRawStrokePoint;
+		const segmentLength = fromPoint.distanceTo(toPoint);
+		if (segmentLength <= 1e-6) return;
+
+		const step = resolveArcResampleStep();
+		let distanceFromFrom = step - strokeArcCarry;
+		while (distanceFromFrom <= segmentLength + 1e-9) {
+			const t = distanceFromFrom / segmentLength;
+			const samplePoint = fromPoint.clone().lerp(toPoint, t);
+			fillStrokeCurve(samplePoint);
+			distanceFromFrom += step;
+		}
+
+		const lastPlacedDistance = distanceFromFrom - step;
+		strokeArcCarry = Math.max(0, segmentLength - lastPlacedDistance);
+		lastRawStrokePoint = toPoint.clone();
 	}
 
 	function fillLinearSegment(fromPoint: THREE.Vector3, toPoint: THREE.Vector3) {
@@ -767,7 +899,7 @@ export let brushStrength = 0.28;
 		for (let step = 1; step <= steps; step += 1) {
 			const t = step / steps;
 			const samplePoint = fromPoint.clone().lerp(toPoint, t);
-			pushBrushDot(samplePoint, { force: true });
+			pushBrushDotWithMirror(samplePoint, { force: true });
 		}
 	}
 
@@ -783,7 +915,7 @@ export let brushStrength = 0.28;
 				.multiplyScalar(invT * invT)
 				.add(controlPoint.clone().multiplyScalar(2 * invT * t))
 				.add(endPoint.clone().multiplyScalar(t * t));
-			pushBrushDot(samplePoint, { force: true });
+			pushBrushDotWithMirror(samplePoint, { force: true });
 		}
 	}
 
@@ -841,6 +973,121 @@ export let brushStrength = 0.28;
 			.addScaledVector(activeTangentV, v);
 	}
 
+	function findDotById(dotId: string) {
+		for (const dot of strokeDots) {
+			if (dot.id === dotId) return dot;
+		}
+		return null;
+	}
+
+	function recordEraseChange(dot: StrokeDot, beforeAmount: number, afterAmount: number) {
+		const existing = pendingEraseChanges.get(dot.id);
+		if (existing) {
+			existing.afterAmount = afterAmount;
+			return;
+		}
+		pendingEraseChanges.set(dot.id, {
+			dotId: dot.id,
+			beforeAmount,
+			afterAmount
+		});
+	}
+
+	function eraseAtPoint(point: THREE.Vector3, options?: { force?: boolean }) {
+		const force = options?.force ?? false;
+		const eraserRadius = brushRadius * ERASER_RADIUS_SCALE;
+		const minSpacing = eraserRadius * ERASER_POINT_SPACING_RATIO;
+		if (
+			!force &&
+			lastEraseSurfacePoint &&
+			lastEraseSurfacePoint.distanceToSquared(point) < minSpacing * minSpacing
+		) {
+			return false;
+		}
+
+		let changed = false;
+		const erasePower = eraserRadius * ERASER_POWER_SCALE * (0.7 + brushStrength * 0.6);
+		const eraseDepthRange = eraserRadius * ERASER_DEPTH_RANGE_SCALE;
+		const radiusSq = eraserRadius * eraserRadius;
+
+		for (const dot of strokeDots) {
+			if (dot.depositAmount <= 1e-6) continue;
+
+			tmpEraseDelta.subVectors(dot.position, point);
+			const along = tmpEraseDelta.dot(activeNormal);
+			const absAlong = Math.abs(along);
+			if (absAlong > eraseDepthRange) continue;
+
+			const radialSq = Math.max(0, tmpEraseDelta.lengthSq() - along * along);
+			if (radialSq > radiusSq) continue;
+
+			const radial = Math.sqrt(radialSq);
+			const radialFalloff = 1 - radial / eraserRadius;
+			const depthFalloff = 1 - absAlong / eraseDepthRange;
+			const falloff = radialFalloff * radialFalloff * depthFalloff;
+			if (falloff <= 1e-6) continue;
+
+			const beforeAmount = dot.depositAmount;
+			const afterAmount = Math.max(0, beforeAmount - erasePower * falloff);
+			if (Math.abs(afterAmount - beforeAmount) <= 1e-6) continue;
+
+			recordEraseChange(dot, beforeAmount, afterAmount);
+			dot.depositAmount = afterAmount;
+			dot.mesh.visible = afterAmount > 1e-6;
+			changed = true;
+		}
+
+		if (changed) {
+			rebuildHeightMaps();
+			refreshAllDotHeights();
+		}
+		lastEraseSurfacePoint = point.clone();
+		return changed;
+	}
+
+	function eraseAtPointWithMirror(point: THREE.Vector3, options?: { force?: boolean }) {
+		let changed = eraseAtPoint(point, options);
+		if (!mirrorDraw) return changed;
+		const mirroredPoint = mirrorAcrossVerticalAxis(point);
+		if (mirroredPoint.distanceToSquared(point) <= MIRROR_AXIS_EPSILON_SQ) return changed;
+		const mirrorChanged = eraseAtPoint(mirroredPoint, options);
+		return changed || mirrorChanged;
+	}
+
+	function eraseAlongSegment(toPoint: THREE.Vector3) {
+		const fromPoint = lastEraseSurfacePoint?.clone();
+		if (!fromPoint) {
+			eraseAtPointWithMirror(toPoint, { force: true });
+			return;
+		}
+
+		const distance = fromPoint.distanceTo(toPoint);
+		if (distance <= 1e-6) return;
+		const eraserRadius = brushRadius * ERASER_RADIUS_SCALE;
+		const stepLength = Math.max(eraserRadius * ERASER_SEGMENT_STEP_RATIO, MIN_PATH_SAMPLE_STEP);
+		const maxSteps = Math.round(MAX_PATH_STEPS * 2);
+		const steps = Math.min(maxSteps, Math.max(1, Math.ceil(distance / stepLength)));
+		for (let step = 1; step <= steps; step += 1) {
+			const t = step / steps;
+			const samplePoint = fromPoint.clone().lerp(toPoint, t);
+			eraseAtPointWithMirror(samplePoint, { force: true });
+		}
+	}
+
+	function startErase(point: THREE.Vector3) {
+		activeStroke = null;
+		lastSurfacePoint = null;
+		lastRawStrokePoint = null;
+		strokeArcCarry = 0;
+		strokeInputPoints.length = 0;
+		lastSmoothedPoint = null;
+		strokeSupportMap = null;
+		strokeSupportView = null;
+		pendingEraseChanges.clear();
+		lastEraseSurfacePoint = null;
+		eraseAtPointWithMirror(point, { force: true });
+	}
+
 	function runAutoFillForClosedStroke() {
 		if (strokeInputPoints.length < AUTO_FILL_MIN_POINTS) return;
 
@@ -879,7 +1126,7 @@ export let brushStrength = 0.28;
 			for (let u = minU; u <= maxU; u += step) {
 				if (!pointInPolygon(u, v, polygon)) continue;
 				const point = uvToWorldPoint(u, v);
-				pushBrushDot(point, { force: true });
+				pushBrushDotWithMirror(point, { force: true });
 				filled += 1;
 				if (filled >= AUTO_FILL_MAX_SAMPLES) return;
 			}
@@ -887,42 +1134,72 @@ export let brushStrength = 0.28;
 	}
 
 	function finishStroke() {
+		if (lastRawStrokePoint) {
+			fillStrokeCurve(lastRawStrokePoint);
+		}
 		if (activeStroke && strokeInputPoints.length >= 2 && lastSmoothedPoint) {
 			const tailPoint = strokeInputPoints[strokeInputPoints.length - 1];
 			fillLinearSegment(lastSmoothedPoint, tailPoint);
 		}
-		runAutoFillForClosedStroke();
+		if (autoFillClosedStroke) {
+			runAutoFillForClosedStroke();
+		}
 		activeStroke = null;
 		lastSurfacePoint = null;
+		lastRawStrokePoint = null;
+		strokeArcCarry = 0;
 		strokeInputPoints.length = 0;
 		lastSmoothedPoint = null;
 		strokeSupportMap = null;
 		strokeSupportView = null;
+		activeStrokeTool = 'free-draw';
+	}
+
+	function finishErase() {
+		if (pendingEraseChanges.size > 0) {
+			actionHistory.push({
+				kind: 'erase',
+				changes: Array.from(pendingEraseChanges.values())
+			});
+		}
+		pendingEraseChanges.clear();
+		lastEraseSurfacePoint = null;
+		lastRawStrokePoint = null;
+		strokeArcCarry = 0;
+		activeStrokeTool = 'free-draw';
 	}
 
 	function undoLastStroke() {
-		const latest = strokeHistory.pop();
+		const latest = actionHistory.pop();
 		if (!latest) return;
-		const strokeId = String(latest.userData.strokeId ?? latest.name);
-		strokeRoot.remove(latest);
 
-		for (let i = strokeDots.length - 1; i >= 0; i -= 1) {
-			if (strokeDots[i].strokeId === strokeId) {
-				strokeDots.splice(i, 1);
+		if (latest.kind === 'draw') {
+			strokeRoot.remove(latest.stroke);
+			for (let i = strokeDots.length - 1; i >= 0; i -= 1) {
+				if (strokeDots[i].strokeId === latest.strokeId) {
+					strokeDots.splice(i, 1);
+				}
+			}
+
+			for (const child of latest.stroke.children) {
+				if (child instanceof THREE.Mesh) {
+					child.material.dispose();
+				}
+			}
+		} else {
+			for (const change of latest.changes) {
+				const dot = findDotById(change.dotId);
+				if (!dot) continue;
+				dot.depositAmount = change.beforeAmount;
+				dot.mesh.visible = change.beforeAmount > 1e-6;
 			}
 		}
 		rebuildHeightMaps();
 		refreshAllDotHeights();
-
-		for (const child of latest.children) {
-			if (child instanceof THREE.Mesh) {
-				child.material.dispose();
-			}
-		}
 	}
 
 	function clearAllStrokes() {
-		while (strokeHistory.length > 0) {
+		while (actionHistory.length > 0) {
 			undoLastStroke();
 		}
 	}
@@ -943,7 +1220,12 @@ export let brushStrength = 0.28;
 		const point = getWorldPoint(event);
 		if (!point) return;
 		isDrawing = true;
-		startStroke(point);
+		activeStrokeTool = drawTool;
+		if (activeStrokeTool === 'erase') {
+			startErase(point);
+		} else {
+			startStroke(point);
+		}
 		mainCanvas.setPointerCapture(event.pointerId);
 	}
 
@@ -986,12 +1268,23 @@ export let brushStrength = 0.28;
 		if (!isDrawing || !cameraLock) return;
 		const point = getWorldPoint(event);
 		if (!point) return;
-		fillStrokeCurve(point);
+		if (activeStrokeTool === 'erase') {
+			eraseAlongSegment(point);
+		} else {
+			appendStrokePointWithArcResample(point);
+		}
 	}
 
 	function onPointerEnd(event: PointerEvent) {
 		if (!mainCanvas) return;
-		if (isDrawing) finishStroke();
+		if (isDrawing) {
+			if (activeStrokeTool === 'erase') {
+				finishErase();
+			} else {
+				finishStroke();
+			}
+			flowPauseSec = FLOW_PAUSE_AFTER_STROKE_SEC;
+		}
 		isDrawing = false;
 		isPanning = false;
 		if (mainCanvas.hasPointerCapture(event.pointerId)) {
@@ -1037,7 +1330,11 @@ export let brushStrength = 0.28;
 		const render = (timestampMs: number) => {
 			const dtSec = Math.min(0.05, Math.max(0, (timestampMs - lastTimestampMs) / 1000));
 			lastTimestampMs = timestampMs;
-			simulateViscousSand(dtSec);
+			if (flowPauseSec > 0) {
+				flowPauseSec = Math.max(0, flowPauseSec - dtSec);
+			} else if (!isDrawing) {
+				simulateViscousSand(dtSec);
+			}
 			pipControls?.update();
 			mainRendererRef.render(sceneRef, mainCameraRef);
 			pipRendererRef.render(sceneRef, pipCameraRef);
@@ -1176,9 +1473,15 @@ export let brushStrength = 0.28;
 
 			<p class="stage-help">
 				{#if isCoarsePointer}
-					{inputMode === 'draw' ? 'Draw 모드에서 터치 드로잉' : 'Pan 모드에서 터치 이동'} · 닫힌 선 자동 면채움
+					{inputMode === 'draw'
+						? `${drawTool === 'fill' ? 'Fill' : drawTool === 'erase' ? 'Erase' : 'Draw'} 모드에서 터치 드로잉`
+						: 'Pan 모드에서 터치 이동'} · {autoFillClosedStroke
+						? '닫힌 선 자동 면채움 ON'
+						: '드래그 경로 수동 채움'} · {mirrorDraw ? '좌우 대칭 ON' : '단일 드로우'}
 				{:else}
-					좌클릭 드로잉 · 우클릭 팬 · 휠 줌 · 닫힌 선 자동 면채움
+					좌클릭 {drawTool === 'fill' ? 'Fill' : drawTool === 'erase' ? 'Erase' : 'Draw'} · 우클릭 팬 · 휠 줌 · {autoFillClosedStroke
+						? '닫힌 선 자동 면채움 ON'
+						: '드래그 경로 수동 채움'} · {mirrorDraw ? '좌우 대칭 ON' : '단일 드로우'}
 				{/if}
 			</p>
 	</div>

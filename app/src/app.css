@@ -247,6 +247,13 @@ button {
 	cursor: pointer;
 }
 
+.tool.active {
+	border-color: #2563eb;
+	background: #dbeafe;
+	color: #1d4ed8;
+	font-weight: 700;
+}
+
 .main-stage {
 	display: block;
 	padding: 10px;

@@ -12,11 +12,15 @@
 		starter: 'Starter Scaffold'
 	};
 
+	type DrawTool = 'free-draw' | 'fill' | 'erase';
+
+	const drawTools: Array<{ id: DrawTool; label: string }> = [
+		{ id: 'free-draw', label: 'Free Draw' },
+		{ id: 'fill', label: 'Fill' },
+		{ id: 'erase', label: 'Erase' }
+	];
+
 	const toolGroups = [
-		{
-			title: 'Draw',
-			tools: ['Free Draw']
-		},
 		{
 			title: 'Build',
 			tools: ['Add Blob', 'Push/Pull', 'Mirror']
@@ -27,8 +31,11 @@
 		}
 	];
 
-	let brushSize = 48;
+	let brushSize = 20;
 	let brushStrength = 0.28;
+	let autoFillClosedStroke = false;
+	let mirrorDraw = false;
+	let drawTool: DrawTool = 'free-draw';
 	const paletteColors = [
 		'#111827',
 		'#334155',
@@ -80,6 +87,20 @@
 	<section class="studio-grid">
 		<aside class="tool-dock">
 			<h2>Tools</h2>
+			<div class="tool-group">
+				<h3>Draw</h3>
+				<div class="tool-list">
+					{#each drawTools as tool}
+						<button
+							type="button"
+							class="tool {drawTool === tool.id ? 'active' : ''}"
+							on:click={() => (drawTool = tool.id)}
+						>
+							{tool.label}
+						</button>
+					{/each}
+				</div>
+			</div>
 			{#each toolGroups as group}
 				<div class="tool-group">
 					<h3>{group.title}</h3>
@@ -93,7 +114,15 @@
 		</aside>
 
 		<div class="main-stage">
-			<FixedDraftStage bind:brushSize bind:brushStrength bind:brushColorHex {paletteColors} />
+			<FixedDraftStage
+				bind:brushSize
+				bind:brushStrength
+				bind:brushColorHex
+				{paletteColors}
+				{autoFillClosedStroke}
+				{mirrorDraw}
+				{drawTool}
+			/>
 		</div>
 
 		<aside class="inspector">
@@ -104,6 +133,12 @@
 			<label for="strength">브러시 강도</label>
 			<input id="strength" type="range" min="0.05" max="1" step="0.01" bind:value={brushStrength} />
 			<p class="value-text">{brushStrengthPercent}%</p>
+			<label for="auto-fill">닫힌 선 자동 면채움</label>
+			<input id="auto-fill" type="checkbox" bind:checked={autoFillClosedStroke} />
+			<p class="value-text">{autoFillClosedStroke ? 'ON' : 'OFF'}</p>
+			<label for="mirror-draw">좌우 대칭 드로우</label>
+			<input id="mirror-draw" type="checkbox" bind:checked={mirrorDraw} />
+			<p class="value-text">{mirrorDraw ? 'ON' : 'OFF'}</p>
 			<label for="brush-color">브러시 색상</label>
 			<div class="color-row">
 				<input id="brush-color" class="color-input" type="color" bind:value={brushColorHex} />
