@@ -54,6 +54,9 @@
 	type InputMode = 'draw' | 'pan';
 	type StrokeDot = {
 		position: THREE.Vector3;
+		u: number;
+		v: number;
+		height: number;
 		radius: number;
 		view: ViewId;
 		strokeId: string;
@@ -81,15 +84,22 @@
 	let guidePlane: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> | null = null;
 	const drawPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
 	const activeNormal = new THREE.Vector3(...VIEW_CONFIGS.front.normal).normalize();
+	const activeTangentU = new THREE.Vector3(1, 0, 0);
+	const activeTangentV = new THREE.Vector3(0, 1, 0);
 	const raycaster = new THREE.Raycaster();
 	const pointer = new THREE.Vector2();
 	const stageTarget = new THREE.Vector3(0, 0, 0);
-	const tmpDelta = new THREE.Vector3();
-	const tmpLateral = new THREE.Vector3();
 
 	const strokeRoot = new THREE.Group();
 	const strokeHistory: THREE.Group[] = [];
 	const strokeDots: StrokeDot[] = [];
+	const stackHeightMaps: Record<ViewId, Map<string, number>> = {
+		front: new Map(),
+		back: new Map(),
+		left: new Map(),
+		right: new Map(),
+		top: new Map()
+	};
 	const unitSphere = new THREE.SphereGeometry(1, 14, 14);
 
 	let activeStroke: THREE.Group | null = null;
@@ -102,6 +112,7 @@
 	const ORTHO_HALF_HEIGHT = 5.5;
 	const MIN_ZOOM = 0.55;
 	const MAX_ZOOM = 6;
+	const STACK_CELL_SIZE = 0.1;
 
 	$: brushRadius = 0.02 + (Math.max(1, Math.min(brushSize, 60)) / 60) * 0.18;
 	$: brushOpacity = THREE.MathUtils.clamp(0.22 + brushStrength * 0.78, 0.22, 1);
@@ -199,7 +210,11 @@
 	}
 
 	function syncDrawPlane() {
-		activeNormal.set(...VIEW_CONFIGS[activeView].normal).normalize();
+		const config = VIEW_CONFIGS[activeView];
+		activeNormal.set(...config.normal).normalize();
+		activeTangentV.set(...config.up).normalize();
+		activeTangentV.addScaledVector(activeNormal, -activeTangentV.dot(activeNormal)).normalize();
+		activeTangentU.crossVectors(activeNormal, activeTangentV).normalize();
 		drawPlane.setFromNormalAndCoplanarPoint(activeNormal, stageTarget);
 	}
 
@@ -265,26 +280,80 @@
 		pushBrushDot(point);
 	}
 
-	function getStackedHeight(basePoint: THREE.Vector3) {
-		const influenceRadius = brushRadius * 1.65;
-		const influenceRadiusSq = influenceRadius * influenceRadius;
+	function toCell(value: number) {
+		return Math.round(value / STACK_CELL_SIZE);
+	}
+
+	function cellKey(ix: number, iy: number) {
+		return `${ix}:${iy}`;
+	}
+
+	function projectToActiveUV(point: THREE.Vector3) {
+		return {
+			u: point.dot(activeTangentU),
+			v: point.dot(activeTangentV)
+		};
+	}
+
+	function getLocalTopHeight(view: ViewId, u: number, v: number, radius: number) {
+		const map = stackHeightMaps[view];
+		const centerI = toCell(u);
+		const centerJ = toCell(v);
+		const range = Math.ceil((radius * 1.25) / STACK_CELL_SIZE);
 		let maxHeight = 0;
 
-		for (const dot of strokeDots) {
-			if (dot.view !== activeView) continue;
+		for (let di = -range; di <= range; di += 1) {
+			for (let dj = -range; dj <= range; dj += 1) {
+				const ix = centerI + di;
+				const iy = centerJ + dj;
+				const sampleU = ix * STACK_CELL_SIZE;
+				const sampleV = iy * STACK_CELL_SIZE;
+				if (Math.hypot(sampleU - u, sampleV - v) > radius * 1.25) continue;
 
-			tmpDelta.subVectors(dot.position, basePoint);
-			const alongNormal = tmpDelta.dot(activeNormal);
-			tmpLateral.copy(tmpDelta).addScaledVector(activeNormal, -alongNormal);
-			if (tmpLateral.lengthSq() > influenceRadiusSq) continue;
-
-			const candidate = alongNormal + dot.radius * 0.42;
-			if (candidate > maxHeight) {
-				maxHeight = candidate;
+				const cellHeight = map.get(cellKey(ix, iy)) ?? 0;
+				if (cellHeight > maxHeight) {
+					maxHeight = cellHeight;
+				}
 			}
 		}
 
 		return maxHeight;
+	}
+
+	function stampHeight(view: ViewId, u: number, v: number, height: number, radius: number) {
+		const map = stackHeightMaps[view];
+		const centerI = toCell(u);
+		const centerJ = toCell(v);
+		const influence = radius * 1.15;
+		const range = Math.ceil(influence / STACK_CELL_SIZE);
+
+		for (let di = -range; di <= range; di += 1) {
+			for (let dj = -range; dj <= range; dj += 1) {
+				const ix = centerI + di;
+				const iy = centerJ + dj;
+				const sampleU = ix * STACK_CELL_SIZE;
+				const sampleV = iy * STACK_CELL_SIZE;
+				const distance = Math.hypot(sampleU - u, sampleV - v);
+				if (distance > influence) continue;
+
+				const falloff = 1 - distance / influence;
+				const candidate = height + falloff * radius * 0.34;
+				const key = cellKey(ix, iy);
+				const prev = map.get(key) ?? 0;
+				if (candidate > prev) {
+					map.set(key, candidate);
+				}
+			}
+		}
+	}
+
+	function rebuildHeightMaps() {
+		for (const view of viewOrder) {
+			stackHeightMaps[view].clear();
+		}
+		for (const dot of strokeDots) {
+			stampHeight(dot.view, dot.u, dot.v, dot.height, dot.radius);
+		}
 	}
 
 	function pushBrushDot(point: THREE.Vector3) {
@@ -293,10 +362,12 @@
 			return;
 		}
 
-		const stackedHeight = getStackedHeight(point);
+		const { u, v } = projectToActiveUV(point);
+		const stackedHeight = getLocalTopHeight(activeView, u, v, brushRadius);
 		const layerStep = brushRadius * THREE.MathUtils.clamp(0.26 + brushStrength * 0.92, 0.26, 1.35);
 		const liftedPoint = point.clone().addScaledVector(activeNormal, stackedHeight + layerStep);
 		const strokeId = String(activeStroke.userData.strokeId ?? activeStroke.name);
+		const dotHeight = stackedHeight + layerStep;
 
 		const brushDot = new THREE.Mesh(
 			unitSphere,
@@ -313,10 +384,14 @@
 		activeStroke.add(brushDot);
 		strokeDots.push({
 			position: liftedPoint.clone(),
+			u,
+			v,
+			height: dotHeight,
 			radius: brushRadius,
 			view: activeView,
 			strokeId
 		});
+		stampHeight(activeView, u, v, dotHeight, brushRadius);
 		lastSurfacePoint = point.clone();
 	}
 
@@ -336,6 +411,7 @@
 				strokeDots.splice(i, 1);
 			}
 		}
+		rebuildHeightMaps();
 
 		for (const child of latest.children) {
 			if (child instanceof THREE.Mesh) {
