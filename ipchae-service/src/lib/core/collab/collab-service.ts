@@ -33,11 +33,36 @@ function isUuidLike(value: string) {
 	);
 }
 
+function parseRoleToken(roleToken: string): CollabRole {
+	if (roleToken === 'owner' || roleToken === 'viewer') return roleToken;
+	return 'editor';
+}
+
 export function parseInviteCode(inviteCode: string): { projectId: string; role: CollabRole } {
-	const [projectId = 'unknown-project', roleToken = 'editor'] = inviteCode.split('-');
-	const role: CollabRole =
-		roleToken === 'owner' || roleToken === 'viewer' ? roleToken : 'editor';
-	return { projectId, role };
+	const normalized = inviteCode.trim();
+	if (!normalized) {
+		return { projectId: 'unknown-project', role: 'editor' };
+	}
+
+	const colonTokens = normalized.split(':');
+	if (colonTokens.length >= 2) {
+		const roleToken = colonTokens[1]?.toLowerCase() ?? 'editor';
+		return {
+			projectId: colonTokens[0] || 'unknown-project',
+			role: parseRoleToken(roleToken)
+		};
+	}
+
+	const tokens = normalized.split('-');
+	const lastToken = tokens[tokens.length - 1]?.toLowerCase() ?? '';
+	if (tokens.length > 1 && (lastToken === 'owner' || lastToken === 'editor' || lastToken === 'viewer')) {
+		return {
+			projectId: tokens.slice(0, -1).join('-') || 'unknown-project',
+			role: parseRoleToken(lastToken)
+		};
+	}
+
+	return { projectId: normalized, role: 'editor' };
 }
 
 async function getLocalSession(sessionId: string) {
@@ -324,4 +349,3 @@ export async function releaseLock(sessionId: string, lockId: string): Promise<Co
 	await saveLocalSession(nextSession);
 	return nextSession;
 }
-

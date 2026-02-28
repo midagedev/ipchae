@@ -32,6 +32,8 @@ export type PartShareView = {
 	allowRemix: boolean;
 };
 
+export type CollabInviteRole = 'owner' | 'editor' | 'viewer';
+
 function createDefaultSnapshot(projectId: string, mode: StartMode): StudioSnapshotV1 {
 	return {
 		schemaVersion: 1,
@@ -353,6 +355,57 @@ export async function createPartShareFromPart({
 	});
 	if (error) return null;
 	return shareSlug;
+}
+
+export async function createCollabInviteFromShare(
+	share: ProjectShareView,
+	{
+		role = 'editor',
+		maxEditors = 4,
+		expiresInMinutes = 60 * 24
+	}: {
+		role?: CollabInviteRole;
+		maxEditors?: number;
+		expiresInMinutes?: number;
+	} = {}
+): Promise<string | null> {
+	if (!share.sourceProjectId) return null;
+
+	const localFallbackCode = `${share.sourceProjectId}:${role}`;
+	const supabase = getSupabaseClient();
+	if (!supabase || !share.shareId) {
+		return localFallbackCode;
+	}
+
+	const {
+		data: { session }
+	} = await supabase.auth.getSession();
+	if (!session?.user?.id) {
+		return localFallbackCode;
+	}
+
+	const randomSuffix = Math.random().toString(36).slice(2, 10);
+	const inviteCode = `${share.sourceProjectId}:${role}:${randomSuffix}`;
+	const expiresAtIso = new Date(Date.now() + Math.max(5, expiresInMinutes) * 60_000).toISOString();
+
+	const { data, error } = await supabase
+		.from('project_collab_invites')
+		.insert({
+			project_id: share.sourceProjectId,
+			invite_code: inviteCode,
+			default_role: role,
+			max_editors: Math.max(1, maxEditors),
+			expires_at: expiresAtIso,
+			is_active: true
+		})
+		.select('invite_code')
+		.single();
+
+	if (error || !data?.invite_code) {
+		return localFallbackCode;
+	}
+
+	return data.invite_code;
 }
 
 export async function cloneProjectFromShare(share: ProjectShareView): Promise<string> {

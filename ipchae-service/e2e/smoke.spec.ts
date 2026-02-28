@@ -18,4 +18,5 @@ test('project share page renders clone CTA', async ({ page }) => {
 	await page.goto('/share/demo-hero-robot');
 	await expect(page.getByRole('heading', { name: 'Hero Robot Base' })).toBeVisible();
 	await expect(page.getByRole('button', { name: '이걸 이용해서 고쳐보시겠어요?' })).toBeVisible();
+	await expect(page.getByRole('button', { name: '같이 편집하기' })).toBeVisible();
 });

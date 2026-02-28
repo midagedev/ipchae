@@ -4,6 +4,7 @@
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 	import {
+		createCollabInviteFromShare,
 		cloneProjectFromShare,
 		loadProjectShare,
 		type ProjectShareView
@@ -28,6 +29,20 @@
 			errorMessage = error instanceof Error ? error.message : 'Clone failed';
 		}
 	}
+
+	async function joinCollab() {
+		if (!share) return;
+		try {
+			const inviteCode = await createCollabInviteFromShare(share, { role: 'editor' });
+			if (!inviteCode) {
+				errorMessage = '협업 초대 코드 생성 실패';
+				return;
+			}
+			await goto(`${base}/collab/${encodeURIComponent(inviteCode)}`);
+		} catch (error) {
+			errorMessage = error instanceof Error ? error.message : '협업 세션 참여 실패';
+		}
+	}
 </script>
 
 <main class="share-shell">
@@ -44,6 +59,7 @@
 			<div class="cta-row">
 				<button type="button" class="primary" on:click={cloneAndEdit}>이걸 이용해서 고쳐보시겠어요?</button>
 				<a class="ghost" href={`${base}/`}>입채로 새로 만들기</a>
+				<button type="button" class="ghost action" on:click={joinCollab}>같이 편집하기</button>
 			</div>
 			{#if errorMessage}
 				<p class="error">{errorMessage}</p>
@@ -107,10 +123,14 @@
 		color: #334155;
 	}
 
+	.action {
+		background: #ffffff;
+		cursor: pointer;
+	}
+
 	.error {
 		margin: 0;
 		color: #dc2626;
 		font-weight: 700;
 	}
 </style>
-

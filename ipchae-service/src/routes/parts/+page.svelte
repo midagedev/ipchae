@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { base } from '$app/paths';
 	import {
 		filterCatalogParts,
 		loadStarterCatalog,
@@ -13,6 +14,7 @@
 		type MyPart,
 		type MyPartVisibility
 	} from '$lib/core/parts/my-part-store';
+	import { createPartShareFromPart } from '$lib/core/share/share-service';
 
 	const categories: Array<StarterPart['category'] | 'all'> = [
 		'all',
@@ -45,6 +47,7 @@
 	let difficulty: StarterPart['difficulty'] | 'all' = 'all';
 	let myParts: MyPart[] = [];
 	let myPartStatus = '';
+	let myPartShareStatus = '';
 
 	onMount(async () => {
 		const [nextCatalog, nextMyParts] = await Promise.all([loadStarterCatalog(), listMyParts()]);
@@ -65,6 +68,30 @@
 		const next = await updatePartVisibility(partId, visibility);
 		myPartStatus = next ? `${next.name} -> ${visibility}` : 'part not found';
 		myParts = await listMyParts();
+	}
+
+	async function shareMyPart(part: MyPart) {
+		const shareSlug = await createPartShareFromPart({
+			partId: part.id,
+			title: part.name,
+			description: `${part.styleFamily} ${part.category} part`,
+			visibility: part.visibility === 'public' ? 'public' : 'unlisted',
+			allowImport: true,
+			allowRemix: true
+		});
+		if (!shareSlug) {
+			myPartShareStatus = `Share failed: ${part.name}`;
+			return;
+		}
+
+		const origin = typeof window === 'undefined' ? '' : window.location.origin;
+		const shareUrl = `${origin}${base}/part/${shareSlug}`;
+		try {
+			await navigator.clipboard.writeText(shareUrl);
+			myPartShareStatus = `Share copied: ${shareUrl}`;
+		} catch {
+			myPartShareStatus = `Share created: ${shareUrl}`;
+		}
 	}
 </script>
 
@@ -132,6 +159,9 @@
 		{#if myPartStatus}
 			<p class="my-part-status">{myPartStatus}</p>
 		{/if}
+		{#if myPartShareStatus}
+			<p class="my-part-status">{myPartShareStatus}</p>
+		{/if}
 		{#if myParts.length === 0}
 			<p>저장된 내 파츠가 없습니다. Studio에서 `Save Part`를 실행해 주세요.</p>
 		{:else}
@@ -145,6 +175,7 @@
 							<button type="button" on:click={() => changeVisibility(part.id, 'private')}>Private</button>
 							<button type="button" on:click={() => changeVisibility(part.id, 'unlisted')}>Unlisted</button>
 							<button type="button" on:click={() => changeVisibility(part.id, 'public')}>Public</button>
+							<button type="button" on:click={() => shareMyPart(part)}>Share</button>
 						</div>
 					</article>
 				{/each}
