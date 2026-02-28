@@ -124,6 +124,7 @@
 	let shareStatus = '';
 	let editActionStatus = '';
 	let selectedStrokeId: string | null = null;
+	let selectedStrokeCount = 0;
 
 	let brushSize = 20;
 	let brushStrength = 0.28;
@@ -237,7 +238,8 @@
 	$: validationSummaryLabel = validationReport
 		? `${validationReport.errors.length} errors / ${validationReport.warnings.length} warnings`
 		: 'not validated';
-	$: selectedStrokeLabel = selectedStrokeId ? selectedStrokeId : '없음';
+	$: selectedStrokeLabel =
+		selectedStrokeCount > 1 ? `${selectedStrokeCount}개 선택` : selectedStrokeId ? selectedStrokeId : '없음';
 	$: sliceLabel = stageSliceEnabled ? `${activeSliceAxis.toUpperCase()} ${activeSliceDepth.toFixed(2)}` : 'OFF';
 	$: editContextLabel = `선택 ${selectedStrokeLabel} · Slice ${sliceLabel}${activeLayerBlocked ? ' · Layer Locked/Hidden' : ''}`;
 	$: autosaveSignal = [
@@ -512,10 +514,12 @@
 
 	function syncSelectedStrokeId() {
 		selectedStrokeId = stageRef?.getSelectedStrokeId?.() ?? null;
+		selectedStrokeCount = stageRef?.getSelectedStrokeIds?.().length ?? (selectedStrokeId ? 1 : 0);
 	}
 
 	function onStageSelectionChange(event: CustomEvent<{ strokeId: string | null }>) {
 		selectedStrokeId = event.detail.strokeId;
+		selectedStrokeCount = stageRef?.getSelectedStrokeIds?.().length ?? (selectedStrokeId ? 1 : 0);
 	}
 
 	function blockedEditMessage() {
@@ -624,6 +628,12 @@
 	function selectLastStroke() {
 		const ok = stageRef?.selectLastStroke?.();
 		editActionStatus = ok ? '최근 스트로크 선택' : '선택할 스트로크가 없습니다.';
+		syncSelectedStrokeId();
+	}
+
+	function selectAllStrokes() {
+		const ok = stageRef?.selectAllStrokes?.();
+		editActionStatus = ok ? '전체 선택 (Ctrl/Cmd+A)' : '선택할 스트로크가 없습니다.';
 		syncSelectedStrokeId();
 	}
 
@@ -1029,6 +1039,7 @@
 					<p class="mini-title">{beginnerMode ? '선택/복제' : 'Edit Actions'}</p>
 					<div class="edit-actions {beginnerMode ? 'beginner' : ''}">
 						<button type="button" class="tool-btn" on:click={selectLastStroke}>Select</button>
+						<button type="button" class="tool-btn" on:click={selectAllStrokes}>Select All</button>
 						<button type="button" class="tool-btn" on:click={duplicateSelectedStroke}>Duplicate</button>
 						<button type="button" class="tool-btn" on:click={copySelectedStroke}>Copy</button>
 						<button type="button" class="tool-btn" on:click={pasteStroke}>Paste</button>
@@ -1058,7 +1069,8 @@
 						</div>
 					{/if}
 					<p class="edit-help">{editContextLabel}</p>
-					<p class="edit-help">Shift+Click · Ctrl/Cmd+Z,Shift+Z,Y · Ctrl/Cmd+C,V,X,D · Delete/Backspace</p>
+					<p class="edit-help">Shift+Click 단일 선택 · Ctrl/Cmd+Shift+Click 추가/제거 · Ctrl/Cmd+A 전체선택</p>
+					<p class="edit-help">Ctrl/Cmd+Z,Shift+Z,Y · Ctrl/Cmd+C,V,X,D · Delete/Backspace</p>
 				</div>
 				<div class="toggle-stack">
 					{#if !beginnerMode}
