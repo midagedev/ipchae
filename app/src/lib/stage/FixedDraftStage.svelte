@@ -107,6 +107,13 @@
 		right: new Map(),
 		top: new Map()
 	};
+	const wetnessMaps: Record<ViewId, Map<string, number>> = {
+		front: new Map(),
+		back: new Map(),
+		left: new Map(),
+		right: new Map(),
+		top: new Map()
+	};
 	const unitSphere = new THREE.SphereGeometry(1, 14, 14);
 
 	let activeStroke: THREE.Group | null = null;
@@ -127,6 +134,19 @@
 	const PATH_SAMPLE_STEP_RATIO = 0.45;
 	const MIN_PATH_SAMPLE_STEP = 0.012;
 	const MAX_PATH_STEPS = 160;
+	const FLOW_NEIGHBORS: Array<[number, number]> = [
+		[1, 0],
+		[-1, 0],
+		[0, 1],
+		[0, -1]
+	];
+	const SAND_REPOSE_GRADIENT = Math.tan(THREE.MathUtils.degToRad(34));
+	const FLOW_RATE = 5.2;
+	const FLOW_ITERATIONS = 2;
+	const FLOW_HARDEN_TAU = 0.65;
+	const FLOW_MIN_WETNESS = 0.016;
+	const FLOW_MAX_TRANSFER_RATIO = 0.58;
+	const FLOW_CARRY_RATIO = 0.92;
 
 	$: brushRadius = 0.02 + (Math.max(1, Math.min(brushSize, 60)) / 60) * 0.18;
 	$: brushRoughness = THREE.MathUtils.clamp(0.7 - brushStrength * 0.35, 0.2, 0.75);
@@ -369,8 +389,17 @@
 		return maxHeight;
 	}
 
-	function depositHeight(view: ViewId, u: number, v: number, depositRadius: number, depositAmount: number) {
+	function depositHeight(
+		view: ViewId,
+		u: number,
+		v: number,
+		depositRadius: number,
+		depositAmount: number,
+		options?: { wetnessBoost?: number }
+	) {
 		const map = stackHeightMaps[view];
+		const wetnessMap = wetnessMaps[view];
+		const wetnessBoost = THREE.MathUtils.clamp(options?.wetnessBoost ?? 0, 0, 1);
 		const centerI = toCell(u);
 		const centerJ = toCell(v);
 		const range = Math.ceil(depositRadius / STACK_CELL_SIZE) + 1;
@@ -390,6 +419,13 @@
 				const key = cellKey(ix, iy);
 				const prev = map.get(key) ?? 0;
 				map.set(key, prev + candidate);
+				if (wetnessBoost > 0) {
+					const prevWet = wetnessMap.get(key) ?? 0;
+					const nextWet = Math.min(1, prevWet + wetnessBoost * falloff);
+					if (nextWet > FLOW_MIN_WETNESS) {
+						wetnessMap.set(key, nextWet);
+					}
+				}
 			}
 		}
 	}
@@ -451,6 +487,7 @@
 	function rebuildHeightMaps() {
 		for (const view of viewOrder) {
 			stackHeightMaps[view].clear();
+			wetnessMaps[view].clear();
 		}
 		for (const dot of strokeDots) {
 			depositHeight(dot.view, dot.u, dot.v, dot.depositRadius, dot.depositAmount);
@@ -469,6 +506,7 @@
 		const layerStep = brushRadius * THREE.MathUtils.clamp(0.26 + brushStrength * 0.92, 0.26, 1.35);
 		const depositRadius = brushRadius * 1.1;
 		const depositAmount = layerStep * 0.9;
+		const wetnessBoost = THREE.MathUtils.clamp(0.34 + brushStrength * 0.46, 0.2, 0.86);
 		const activeStrokeId = String(activeStroke.userData.strokeId ?? activeStroke.name);
 		const baseFromMap = sampleStrokeSupportHeight(activeView, u, v);
 		const baseFromExistingDots = sampleTopFromExistingDots(point, activeNormal, activeStrokeId);
@@ -478,7 +516,7 @@
 		if (supportHeight > currentMapHeight) {
 			raiseBaseline(activeView, u, v, supportHeight, depositRadius);
 		}
-		depositHeight(activeView, u, v, depositRadius, depositAmount);
+		depositHeight(activeView, u, v, depositRadius, depositAmount, { wetnessBoost });
 		const dotHeight = supportHeight + depositAmount;
 		const liftedPoint = point.clone().addScaledVector(activeNormal, dotHeight);
 		const strokeId = activeStrokeId;
@@ -508,6 +546,121 @@
 			strokeId
 		});
 		lastSurfacePoint = point.clone();
+	}
+
+	function parseCellKey(key: string): [number, number] {
+		const split = key.indexOf(':');
+		return [Number(key.slice(0, split)), Number(key.slice(split + 1))];
+	}
+
+	function applyViscousFlow(view: ViewId, dtSec: number) {
+		const heightMap = stackHeightMaps[view];
+		const wetnessMap = wetnessMaps[view];
+		if (wetnessMap.size === 0) return false;
+
+		const decay = Math.exp(-dtSec / FLOW_HARDEN_TAU);
+		const reposeThreshold = SAND_REPOSE_GRADIENT * STACK_CELL_SIZE;
+		const heightDelta = new Map<string, number>();
+		const nextWetness = new Map<string, number>();
+		let changed = false;
+
+		for (const [sourceKey, sourceWetness] of wetnessMap.entries()) {
+			const sourceHeight = heightMap.get(sourceKey) ?? 0;
+			if (sourceHeight <= 1e-6) continue;
+
+			const wetness = THREE.MathUtils.clamp(sourceWetness * decay, 0, 1);
+			if (wetness <= FLOW_MIN_WETNESS) continue;
+
+			const [ix, iy] = parseCellKey(sourceKey);
+			const flowCandidates: Array<{ key: string; amount: number }> = [];
+			let totalCandidate = 0;
+
+			for (const [dx, dy] of FLOW_NEIGHBORS) {
+				const targetKey = cellKey(ix + dx, iy + dy);
+				const targetHeight = heightMap.get(targetKey) ?? 0;
+				const excessSlope = sourceHeight - targetHeight - reposeThreshold;
+				if (excessSlope <= 0) continue;
+				const amount = excessSlope * FLOW_RATE * dtSec * wetness;
+				if (amount <= 1e-6) continue;
+				flowCandidates.push({ key: targetKey, amount });
+				totalCandidate += amount;
+			}
+
+			const maxTransfer = sourceHeight * (FLOW_MAX_TRANSFER_RATIO * wetness + 0.06);
+			const transferScale = totalCandidate > maxTransfer && totalCandidate > 0 ? maxTransfer / totalCandidate : 1;
+			let moved = 0;
+
+			for (const candidate of flowCandidates) {
+				const movedAmount = candidate.amount * transferScale;
+				if (movedAmount <= 1e-6) continue;
+				moved += movedAmount;
+				heightDelta.set(sourceKey, (heightDelta.get(sourceKey) ?? 0) - movedAmount);
+				heightDelta.set(candidate.key, (heightDelta.get(candidate.key) ?? 0) + movedAmount);
+
+				const carriedWetness = THREE.MathUtils.clamp(
+					(sourceHeight > 1e-6 ? movedAmount / sourceHeight : 0) * wetness * FLOW_CARRY_RATIO,
+					0,
+					1
+				);
+				if (carriedWetness > FLOW_MIN_WETNESS) {
+					nextWetness.set(
+						candidate.key,
+						Math.min(1, (nextWetness.get(candidate.key) ?? 0) + carriedWetness)
+					);
+				}
+			}
+
+			const residualWetness = THREE.MathUtils.clamp(
+				wetness - (sourceHeight > 1e-6 ? (moved / sourceHeight) * wetness : 0),
+				0,
+				1
+			);
+			if (residualWetness > FLOW_MIN_WETNESS) {
+				nextWetness.set(sourceKey, Math.max(nextWetness.get(sourceKey) ?? 0, residualWetness));
+			}
+			if (moved > 1e-6) {
+				changed = true;
+			}
+		}
+
+		for (const [key, delta] of heightDelta.entries()) {
+			const nextHeight = (heightMap.get(key) ?? 0) + delta;
+			if (nextHeight > 1e-6) {
+				heightMap.set(key, nextHeight);
+			} else {
+				heightMap.delete(key);
+			}
+		}
+
+		wetnessMap.clear();
+		for (const [key, wetness] of nextWetness.entries()) {
+			if (wetness > FLOW_MIN_WETNESS) {
+				wetnessMap.set(key, wetness);
+			}
+		}
+
+		return changed;
+	}
+
+	function simulateViscousSand(dtSec: number) {
+		if (dtSec <= 0) return;
+		const changedViews = new Set<ViewId>();
+		const stepDt = dtSec / FLOW_ITERATIONS;
+
+		for (let i = 0; i < FLOW_ITERATIONS; i += 1) {
+			for (const view of viewOrder) {
+				if (applyViscousFlow(view, stepDt)) {
+					changedViews.add(view);
+				}
+			}
+		}
+
+		if (changedViews.size === 0) return;
+		for (const dot of strokeDots) {
+			if (changedViews.has(dot.view)) {
+				refreshDotHeight(dot);
+			}
+		}
 	}
 
 	function resolveSegmentSteps(length: number) {
@@ -711,7 +864,11 @@
 		const mainCameraRef = mainCamera;
 		const pipCameraRef = pipCamera;
 
-		const render = () => {
+		let lastTimestampMs = performance.now();
+		const render = (timestampMs: number) => {
+			const dtSec = Math.min(0.05, Math.max(0, (timestampMs - lastTimestampMs) / 1000));
+			lastTimestampMs = timestampMs;
+			simulateViscousSand(dtSec);
 			pipControls?.update();
 			mainRendererRef.render(sceneRef, mainCameraRef);
 			pipRendererRef.render(sceneRef, pipCameraRef);
