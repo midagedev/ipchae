@@ -1,0 +1,704 @@
+<script lang="ts">
+	import { onDestroy, onMount } from 'svelte';
+	import * as THREE from 'three';
+	import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+
+	type ViewId = 'front' | 'back' | 'left' | 'right' | 'top';
+
+	type ViewConfig = {
+		label: string;
+		position: [number, number, number];
+		up: [number, number, number];
+		normal: [number, number, number];
+	};
+
+	const VIEW_CONFIGS: Record<ViewId, ViewConfig> = {
+		front: {
+			label: 'Front',
+			position: [0, 0, 8],
+			up: [0, 1, 0],
+			normal: [0, 0, 1]
+		},
+		back: {
+			label: 'Back',
+			position: [0, 0, -8],
+			up: [0, 1, 0],
+			normal: [0, 0, -1]
+		},
+		left: {
+			label: 'Left',
+			position: [-8, 0, 0],
+			up: [0, 1, 0],
+			normal: [-1, 0, 0]
+		},
+		right: {
+			label: 'Right',
+			position: [8, 0, 0],
+			up: [0, 1, 0],
+			normal: [1, 0, 0]
+		},
+		top: {
+			label: 'Top',
+			position: [0, 8, 0],
+			up: [0, 0, -1],
+			normal: [0, 1, 0]
+		}
+	};
+
+	const viewOrder: ViewId[] = ['front', 'right', 'top', 'left', 'back'];
+
+	export let brushSize = 12;
+	export let brushStrength = 0.45;
+	export let brushColorHex = '#2563eb';
+
+	type InputMode = 'draw' | 'pan';
+
+	let activeView: ViewId = 'front';
+	let cameraLock = true;
+	let inputMode: InputMode = 'draw';
+	let isCoarsePointer = false;
+
+	let mainWrap: HTMLDivElement | undefined;
+	let mainCanvas: HTMLCanvasElement | undefined;
+	let pipCanvas: HTMLCanvasElement | undefined;
+
+	let mainRenderer: THREE.WebGLRenderer | null = null;
+	let pipRenderer: THREE.WebGLRenderer | null = null;
+	let scene: THREE.Scene | null = null;
+	let mainCamera: THREE.OrthographicCamera | null = null;
+	let pipCamera: THREE.PerspectiveCamera | null = null;
+	let pipControls: OrbitControls | null = null;
+
+	let animationFrame = 0;
+	let resizeObserver: ResizeObserver | null = null;
+
+	let guidePlane: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> | null = null;
+	const drawPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+	const raycaster = new THREE.Raycaster();
+	const pointer = new THREE.Vector2();
+	const stageTarget = new THREE.Vector3(0, 0, 0);
+
+	const strokeRoot = new THREE.Group();
+	const strokeHistory: THREE.Group[] = [];
+	const unitSphere = new THREE.SphereGeometry(1, 14, 14);
+
+	let activeStroke: THREE.Group | null = null;
+	let lastDrawPoint: THREE.Vector3 | null = null;
+	let isDrawing = false;
+	let isPanning = false;
+	let panStartX = 0;
+	let panStartY = 0;
+
+	const ORTHO_HALF_HEIGHT = 5.5;
+	const MIN_ZOOM = 0.55;
+	const MAX_ZOOM = 6;
+
+	$: brushRadius = 0.02 + (Math.max(1, Math.min(brushSize, 60)) / 60) * 0.18;
+	$: brushOpacity = THREE.MathUtils.clamp(0.22 + brushStrength * 0.78, 0.22, 1);
+	$: brushRoughness = THREE.MathUtils.clamp(0.7 - brushStrength * 0.35, 0.2, 0.75);
+
+	function resolveBrushColor() {
+		const color = new THREE.Color();
+		color.set(brushColorHex || '#2563eb');
+		return color;
+	}
+
+	function setupStage() {
+		if (!mainCanvas || !pipCanvas || !mainWrap) return;
+
+		scene = new THREE.Scene();
+
+		mainRenderer = new THREE.WebGLRenderer({
+			canvas: mainCanvas,
+			antialias: true,
+			alpha: false
+		});
+		mainRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+		mainRenderer.setClearColor(0xf8fafc, 1);
+
+		pipRenderer = new THREE.WebGLRenderer({
+			canvas: pipCanvas,
+			antialias: true,
+			alpha: false
+		});
+		pipRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+		pipRenderer.setClearColor(0xeff6ff, 1);
+
+		mainCamera = new THREE.OrthographicCamera(
+			-ORTHO_HALF_HEIGHT,
+			ORTHO_HALF_HEIGHT,
+			ORTHO_HALF_HEIGHT,
+			-ORTHO_HALF_HEIGHT,
+			0.1,
+			100
+		);
+		mainCamera.zoom = 1;
+
+		pipCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 200);
+		pipCamera.position.set(8, 6, 8);
+		pipCamera.lookAt(stageTarget);
+
+		pipControls = new OrbitControls(pipCamera, pipCanvas);
+		pipControls.enableDamping = true;
+		pipControls.dampingFactor = 0.08;
+		pipControls.target.copy(stageTarget);
+		pipControls.minDistance = 3;
+		pipControls.maxDistance = 24;
+
+		scene.add(strokeRoot);
+		scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+		const keyLight = new THREE.DirectionalLight(0xffffff, 0.55);
+		keyLight.position.set(6, 8, 6);
+		scene.add(keyLight);
+
+		// 중심 기준점을 두면 Front/Side/Top에서 2D 드로잉 좌표 감각이 안정된다.
+		const originMarker = new THREE.Mesh(
+			new THREE.SphereGeometry(0.06, 10, 10),
+			new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.8 })
+		);
+		scene.add(originMarker);
+
+		updateMainView(activeView);
+		handleResize();
+		startRenderLoop();
+	}
+
+	function makeGuidePlane(normalTuple: [number, number, number]) {
+		if (!scene) return;
+
+		if (guidePlane) {
+			scene.remove(guidePlane);
+			guidePlane.geometry.dispose();
+			guidePlane.material.dispose();
+		}
+
+		const normal = new THREE.Vector3(...normalTuple).normalize();
+		guidePlane = new THREE.Mesh(
+			new THREE.PlaneGeometry(16, 16),
+			new THREE.MeshBasicMaterial({
+				color: 0x93c5fd,
+				transparent: true,
+				opacity: 0.08,
+				side: THREE.DoubleSide,
+				depthWrite: false
+			})
+		);
+		guidePlane.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+		guidePlane.position.copy(stageTarget);
+		scene.add(guidePlane);
+	}
+
+	function syncDrawPlane() {
+		const normal = new THREE.Vector3(...VIEW_CONFIGS[activeView].normal).normalize();
+		drawPlane.setFromNormalAndCoplanarPoint(normal, stageTarget);
+	}
+
+	function updateMainView(nextView: ViewId) {
+		if (!mainCamera) return;
+
+		activeView = nextView;
+		const config = VIEW_CONFIGS[nextView];
+		const cameraOffset = new THREE.Vector3(...config.position);
+
+		mainCamera.position.copy(stageTarget).add(cameraOffset);
+		mainCamera.up.set(...config.up);
+		mainCamera.lookAt(stageTarget);
+		mainCamera.updateProjectionMatrix();
+
+		syncDrawPlane();
+		makeGuidePlane(config.normal);
+	}
+
+	function resetQuarterView() {
+		if (!pipCamera || !pipControls) return;
+		pipCamera.position.set(8, 6, 8);
+		pipControls.target.copy(stageTarget);
+		pipControls.update();
+	}
+
+	function setInputMode(nextMode: InputMode) {
+		inputMode = nextMode;
+	}
+
+	function zoomMain(zoomFactor: number) {
+		if (!mainCamera) return;
+		mainCamera.zoom = THREE.MathUtils.clamp(mainCamera.zoom * zoomFactor, MIN_ZOOM, MAX_ZOOM);
+		mainCamera.updateProjectionMatrix();
+	}
+
+	function resetMainView() {
+		if (!mainCamera || !pipControls || !pipCamera) return;
+		stageTarget.set(0, 0, 0);
+		mainCamera.zoom = 1;
+		updateMainView(activeView);
+		resetQuarterView();
+	}
+
+	function getWorldPoint(event: PointerEvent) {
+		if (!mainCanvas || !mainCamera) return null;
+		const rect = mainCanvas.getBoundingClientRect();
+		pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+		pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+		raycaster.setFromCamera(pointer, mainCamera);
+		const hit = new THREE.Vector3();
+		return raycaster.ray.intersectPlane(drawPlane, hit) ? hit : null;
+	}
+
+	function startStroke(point: THREE.Vector3) {
+		activeStroke = new THREE.Group();
+		activeStroke.name = `stroke-${Date.now()}`;
+		strokeRoot.add(activeStroke);
+		strokeHistory.push(activeStroke);
+		lastDrawPoint = null;
+		pushBrushDot(point);
+	}
+
+	function pushBrushDot(point: THREE.Vector3) {
+		if (!activeStroke) return;
+		if (lastDrawPoint && lastDrawPoint.distanceToSquared(point) < brushRadius * brushRadius * 0.45) return;
+
+		const brushDot = new THREE.Mesh(
+			unitSphere,
+			new THREE.MeshStandardMaterial({
+				color: resolveBrushColor(),
+				roughness: brushRoughness,
+				metalness: 0.06,
+				transparent: true,
+				opacity: brushOpacity
+			})
+		);
+		brushDot.position.copy(point);
+		brushDot.scale.setScalar(brushRadius);
+		activeStroke.add(brushDot);
+		lastDrawPoint = point.clone();
+	}
+
+	function finishStroke() {
+		activeStroke = null;
+		lastDrawPoint = null;
+	}
+
+	function undoLastStroke() {
+		const latest = strokeHistory.pop();
+		if (!latest) return;
+		strokeRoot.remove(latest);
+		for (const child of latest.children) {
+			if (child instanceof THREE.Mesh) {
+				child.material.dispose();
+			}
+		}
+	}
+
+	function clearAllStrokes() {
+		while (strokeHistory.length > 0) {
+			undoLastStroke();
+		}
+	}
+
+	function onPointerDown(event: PointerEvent) {
+		if (!mainCanvas || !cameraLock) return;
+		const shouldPan = event.button === 2 || inputMode === 'pan';
+
+		if (shouldPan) {
+			isPanning = true;
+			panStartX = event.clientX;
+			panStartY = event.clientY;
+			mainCanvas.setPointerCapture(event.pointerId);
+			return;
+		}
+
+		if (event.button !== 0) return;
+		const point = getWorldPoint(event);
+		if (!point) return;
+		isDrawing = true;
+		startStroke(point);
+		mainCanvas.setPointerCapture(event.pointerId);
+	}
+
+	function panCamera(deltaX: number, deltaY: number) {
+		if (!mainCamera || !mainWrap) return;
+		const width = Math.max(1, mainWrap.clientWidth);
+		const height = Math.max(1, mainWrap.clientHeight);
+		const worldW = (mainCamera.right - mainCamera.left) / mainCamera.zoom;
+		const worldH = (mainCamera.top - mainCamera.bottom) / mainCamera.zoom;
+		const moveX = (-deltaX / width) * worldW;
+		const moveY = (deltaY / height) * worldH;
+
+		const right = new THREE.Vector3(1, 0, 0).applyQuaternion(mainCamera.quaternion);
+		const up = new THREE.Vector3(0, 1, 0).applyQuaternion(mainCamera.quaternion);
+		const move = right.multiplyScalar(moveX).add(up.multiplyScalar(moveY));
+
+		stageTarget.add(move);
+		mainCamera.position.add(move);
+		mainCamera.lookAt(stageTarget);
+		syncDrawPlane();
+		guidePlane?.position.copy(stageTarget);
+
+		if (pipControls) {
+			pipControls.target.copy(stageTarget);
+		}
+	}
+
+	function onPointerMove(event: PointerEvent) {
+		if (isPanning) {
+			const dx = event.clientX - panStartX;
+			const dy = event.clientY - panStartY;
+			panStartX = event.clientX;
+			panStartY = event.clientY;
+			panCamera(dx, dy);
+			return;
+		}
+
+		if (!isDrawing || !cameraLock) return;
+		const point = getWorldPoint(event);
+		if (!point) return;
+		pushBrushDot(point);
+	}
+
+	function onPointerEnd(event: PointerEvent) {
+		if (!mainCanvas) return;
+		if (isDrawing) finishStroke();
+		isDrawing = false;
+		isPanning = false;
+		if (mainCanvas.hasPointerCapture(event.pointerId)) {
+			mainCanvas.releasePointerCapture(event.pointerId);
+		}
+	}
+
+	function onWheel(event: WheelEvent) {
+		if (!mainCamera || !cameraLock) return;
+		event.preventDefault();
+		zoomMain(Math.exp(-event.deltaY * 0.0012));
+	}
+
+	function handleResize() {
+		if (!mainWrap || !mainRenderer || !pipRenderer || !mainCamera || !pipCamera) return;
+
+		const width = Math.max(320, mainWrap.clientWidth);
+		const height = Math.max(260, mainWrap.clientHeight);
+		mainRenderer.setSize(width, height, false);
+		const aspect = width / height;
+		mainCamera.left = -ORTHO_HALF_HEIGHT * aspect;
+		mainCamera.right = ORTHO_HALF_HEIGHT * aspect;
+		mainCamera.top = ORTHO_HALF_HEIGHT;
+		mainCamera.bottom = -ORTHO_HALF_HEIGHT;
+		mainCamera.updateProjectionMatrix();
+
+		const pipWidth = Math.max(180, Math.min(280, width * 0.3));
+		const pipHeight = Math.round(pipWidth * 0.66);
+		pipRenderer.setSize(pipWidth, pipHeight, false);
+		pipCamera.aspect = pipWidth / pipHeight;
+		pipCamera.updateProjectionMatrix();
+	}
+
+	function startRenderLoop() {
+		if (!scene || !mainRenderer || !pipRenderer || !mainCamera || !pipCamera) return;
+		const sceneRef = scene;
+		const mainRendererRef = mainRenderer;
+		const pipRendererRef = pipRenderer;
+		const mainCameraRef = mainCamera;
+		const pipCameraRef = pipCamera;
+
+		const render = () => {
+			pipControls?.update();
+			mainRendererRef.render(sceneRef, mainCameraRef);
+			pipRendererRef.render(sceneRef, pipCameraRef);
+			animationFrame = requestAnimationFrame(render);
+		};
+		render();
+	}
+
+	function stopRenderLoop() {
+		if (animationFrame) cancelAnimationFrame(animationFrame);
+	}
+
+	function disposeStage() {
+		stopRenderLoop();
+		resizeObserver?.disconnect();
+		pipControls?.dispose();
+
+		if (guidePlane) {
+			guidePlane.geometry.dispose();
+			guidePlane.material.dispose();
+		}
+
+		unitSphere.dispose();
+		mainRenderer?.dispose();
+		pipRenderer?.dispose();
+	}
+
+	onMount(() => {
+		isCoarsePointer = window.matchMedia('(pointer: coarse)').matches;
+		setupStage();
+		if (mainWrap) {
+			resizeObserver = new ResizeObserver(() => handleResize());
+			resizeObserver.observe(mainWrap);
+		}
+	});
+
+	onDestroy(() => {
+		disposeStage();
+	});
+</script>
+
+<div class="stage-root">
+	<div class="stage-toolbar">
+		<div class="view-tabs" role="tablist" aria-label="Fixed camera angles">
+			{#each viewOrder as view}
+				<button
+					type="button"
+					class="view-btn {activeView === view ? 'active' : ''}"
+					on:click={() => updateMainView(view)}
+					role="tab"
+					aria-selected={activeView === view}
+				>
+					{VIEW_CONFIGS[view].label}
+				</button>
+			{/each}
+		</div>
+		<div class="toolbar-right">
+			<div class="mode-toggle" aria-label="Input mode">
+				<button
+					type="button"
+					class="toolbar-btn mode-btn {inputMode === 'draw' ? 'mode-active' : ''}"
+					on:click={() => setInputMode('draw')}
+				>
+					Draw
+				</button>
+				<button
+					type="button"
+					class="toolbar-btn mode-btn {inputMode === 'pan' ? 'mode-active' : ''}"
+					on:click={() => setInputMode('pan')}
+				>
+					Pan
+				</button>
+			</div>
+			<span class="lock-chip">{cameraLock ? 'Locked Camera (Default)' : 'Free Camera'}</span>
+			<button type="button" class="toolbar-btn" on:click={() => zoomMain(1.15)}>Zoom +</button>
+			<button type="button" class="toolbar-btn" on:click={() => zoomMain(0.87)}>Zoom -</button>
+			<button type="button" class="toolbar-btn" on:click={resetMainView}>Reset View</button>
+			<button type="button" class="toolbar-btn" on:click={undoLastStroke}>Undo Stroke</button>
+			<button type="button" class="toolbar-btn" on:click={clearAllStrokes}>Clear</button>
+		</div>
+	</div>
+
+	<div class="main-wrap" bind:this={mainWrap}>
+		<canvas
+			class="main-canvas"
+			bind:this={mainCanvas}
+			on:pointerdown={onPointerDown}
+			on:pointermove={onPointerMove}
+			on:pointerup={onPointerEnd}
+			on:pointercancel={onPointerEnd}
+			on:wheel={onWheel}
+			on:contextmenu|preventDefault
+		></canvas>
+
+		<div class="pip-wrap">
+			<div class="pip-header">
+				<span>PIP Quarter View</span>
+				<button type="button" class="pip-reset" on:click={resetQuarterView}>Reset</button>
+			</div>
+			<canvas class="pip-canvas" bind:this={pipCanvas}></canvas>
+		</div>
+
+		<p class="stage-help">
+			{#if isCoarsePointer}
+				{inputMode === 'draw' ? 'Draw 모드에서 터치 드로잉' : 'Pan 모드에서 터치 이동'} · Zoom +/- 버튼 사용
+			{:else}
+				좌클릭 드로잉 · 우클릭 팬 · 휠 줌 (메인뷰 각도 고정)
+			{/if}
+		</p>
+	</div>
+</div>
+
+<style>
+	.stage-root {
+		width: 100%;
+		height: 100%;
+		display: grid;
+		grid-template-rows: auto 1fr;
+		gap: 10px;
+	}
+
+	.stage-toolbar {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 10px;
+		flex-wrap: wrap;
+	}
+
+	.view-tabs {
+		display: flex;
+		gap: 6px;
+		flex-wrap: wrap;
+	}
+
+	.view-btn,
+	.toolbar-btn,
+	.pip-reset {
+		border: 1px solid #d1d9ea;
+		border-radius: 8px;
+		background: #ffffff;
+		padding: 6px 10px;
+		font-size: 0.84rem;
+		font-weight: 600;
+		color: #1f2937;
+		cursor: pointer;
+	}
+
+	.view-btn.active {
+		border-color: #2563eb;
+		background: #dbeafe;
+		color: #1d4ed8;
+	}
+
+	.toolbar-right {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		flex-wrap: wrap;
+	}
+
+	.mode-toggle {
+		display: inline-flex;
+		gap: 4px;
+	}
+
+	.mode-btn.mode-active {
+		border-color: #0ea5e9;
+		background: #e0f2fe;
+		color: #0369a1;
+	}
+
+	.lock-chip {
+		font-size: 0.78rem;
+		font-weight: 700;
+		background: #dcfce7;
+		color: #166534;
+		padding: 5px 9px;
+		border-radius: 999px;
+	}
+
+	.main-wrap {
+		position: relative;
+		width: 100%;
+		height: 100%;
+		min-height: 460px;
+		border: 1px solid #dbe2f2;
+		border-radius: 10px;
+		overflow: hidden;
+		background:
+			linear-gradient(0deg, rgba(15, 23, 42, 0.05) 1px, transparent 1px),
+			linear-gradient(90deg, rgba(15, 23, 42, 0.05) 1px, transparent 1px),
+			#f8fafc;
+		background-size: 24px 24px, 24px 24px, auto;
+	}
+
+	.main-canvas {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		display: block;
+		touch-action: none;
+	}
+
+	.pip-wrap {
+		position: absolute;
+		top: 12px;
+		right: 12px;
+		display: grid;
+		gap: 6px;
+		padding: 8px;
+		border-radius: 10px;
+		border: 1px solid #c7d2fe;
+		background: rgba(255, 255, 255, 0.93);
+		backdrop-filter: blur(3px);
+		box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12);
+	}
+
+	.pip-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+		font-size: 0.76rem;
+		font-weight: 700;
+		color: #334155;
+	}
+
+	.pip-canvas {
+		width: 220px;
+		height: 145px;
+		border-radius: 7px;
+		border: 1px solid #dbe2f2;
+		display: block;
+	}
+
+	.stage-help {
+		position: absolute;
+		left: 12px;
+		bottom: 10px;
+		margin: 0;
+		padding: 6px 10px;
+		border-radius: 999px;
+		background: rgba(255, 255, 255, 0.94);
+		border: 1px solid #dbe2f2;
+		font-size: 0.76rem;
+		font-weight: 600;
+		color: #475569;
+	}
+
+	@media (max-width: 960px) {
+		.stage-toolbar {
+			align-items: flex-start;
+		}
+
+		.view-tabs {
+			width: 100%;
+			overflow-x: auto;
+			flex-wrap: nowrap;
+			padding-bottom: 2px;
+		}
+
+		.toolbar-right {
+			width: 100%;
+		}
+
+		.toolbar-btn {
+			min-height: 38px;
+		}
+
+		.main-wrap {
+			min-height: 360px;
+		}
+
+		.pip-canvas {
+			width: 180px;
+			height: 120px;
+		}
+
+		.stage-help {
+			font-size: 0.7rem;
+		}
+	}
+
+	@media (max-width: 640px) {
+		.pip-wrap {
+			top: auto;
+			bottom: 12px;
+			right: 12px;
+		}
+
+		.pip-canvas {
+			width: 148px;
+			height: 98px;
+		}
+
+		.main-wrap {
+			min-height: 62vh;
+		}
+	}
+</style>
