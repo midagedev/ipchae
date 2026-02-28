@@ -220,3 +220,5 @@
 11. 2026-02-28 (commit `789456c`)
    1. T8 성능: Vite manualChunks(`three`, `three/examples`, `spectrum`) 분할 적용
    2. T8 운영: chunk warning 임계치 조정으로 빌드 경고 노이즈 축소
+12. 2026-02-28 (commit `e72151e`)
+   1. T5 진행: `/share/:slug`, `/part/:slug`에 동적 `<svelte:head>` OG/Twitter 메타 연결
