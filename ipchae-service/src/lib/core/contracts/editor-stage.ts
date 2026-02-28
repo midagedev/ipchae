@@ -31,6 +31,7 @@ export type EditorStageHandle = {
 	zoomMain: (zoomFactor: number) => void;
 	resetMainView: () => void;
 	undoLastStroke: () => void;
+	redoLastStroke: () => void;
 	clearAllStrokes: () => void;
 	getDraftSummary: (maxDots?: number) => DraftSummary;
 	getSelectedStrokeId: () => string | null;
@@ -45,5 +46,6 @@ export type EditorStageHandle = {
 	nudgeSelectedStroke: (deltaU: number, deltaV: number, deltaN?: number) => boolean;
 	scaleSelectedStroke: (scaleFactor: number) => boolean;
 	rotateSelectedStroke: (degrees: number) => boolean;
+	resetSelectedStrokeTransform: () => boolean;
 	sliceCutSelectedStroke: () => boolean;
 };

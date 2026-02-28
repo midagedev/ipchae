@@ -121,8 +121,7 @@
 	type HistoryEntry =
 		| {
 				kind: 'draw';
-				stroke: THREE.Group;
-				strokeId: string;
+				snapshot: StrokeSnapshot;
 		  }
 		| {
 				kind: 'erase';
@@ -136,6 +135,7 @@
 				kind: 'snapshot';
 				strokeId: string;
 				before: StrokeSnapshot;
+				after: StrokeSnapshot | null;
 		  };
 
 	let activeView: ViewId = 'front';
@@ -178,7 +178,9 @@
 
 	const strokeRoot = new THREE.Group();
 	const actionHistory: HistoryEntry[] = [];
+	const redoHistory: HistoryEntry[] = [];
 	const strokeDots: StrokeDot[] = [];
+	const strokeOriginSnapshots = new Map<string, StrokeSnapshot>();
 	const dispatch = createEventDispatcher<{
 		selectionchange: { strokeId: string | null };
 	}>();
@@ -816,7 +818,7 @@
 		for (let i = actionHistory.length - 1; i >= 0; i -= 1) {
 			const entry = actionHistory[i];
 			if (entry.kind !== 'draw') continue;
-			if (strokeExists(entry.strokeId)) return entry.strokeId;
+			if (strokeExists(entry.snapshot.strokeId)) return entry.snapshot.strokeId;
 		}
 		const fallback = strokeRoot.children[strokeRoot.children.length - 1];
 		if (!fallback) return null;
@@ -849,6 +851,43 @@
 				colorHex: `#${dot.mesh.material.color.getHexString()}`
 			}))
 		};
+	}
+
+	function cloneStrokeSnapshot(snapshot: StrokeSnapshot): StrokeSnapshot {
+		return {
+			strokeId: snapshot.strokeId,
+			dots: snapshot.dots.map((dot) => ({
+				basePoint: [...dot.basePoint] as [number, number, number],
+				radius: dot.radius,
+				depositRadius: dot.depositRadius,
+				depositAmount: dot.depositAmount,
+				view: dot.view,
+				colorHex: dot.colorHex
+			}))
+		};
+	}
+
+	function strokeSnapshotsEqual(a: StrokeSnapshot, b: StrokeSnapshot) {
+		if (a.strokeId !== b.strokeId) return false;
+		if (a.dots.length !== b.dots.length) return false;
+		for (let i = 0; i < a.dots.length; i += 1) {
+			const left = a.dots[i];
+			const right = b.dots[i];
+			if (left.basePoint[0] !== right.basePoint[0]) return false;
+			if (left.basePoint[1] !== right.basePoint[1]) return false;
+			if (left.basePoint[2] !== right.basePoint[2]) return false;
+			if (left.radius !== right.radius) return false;
+			if (left.depositRadius !== right.depositRadius) return false;
+			if (left.depositAmount !== right.depositAmount) return false;
+			if (left.view !== right.view) return false;
+			if (left.colorHex !== right.colorHex) return false;
+		}
+		return true;
+	}
+
+	function pushHistory(entry: HistoryEntry) {
+		actionHistory.push(entry);
+		redoHistory.length = 0;
 	}
 
 	function disposeStrokeMeshes(stroke: THREE.Group) {
@@ -929,11 +968,35 @@
 		refreshAllDotHeights();
 		markSmoothSurfaceDirty();
 		setSelectedStroke(strokeId);
+		if (!strokeOriginSnapshots.has(strokeId)) {
+			const origin = captureStrokeSnapshot(strokeId);
+			if (origin) {
+				strokeOriginSnapshots.set(strokeId, cloneStrokeSnapshot(origin));
+			}
+		}
 
 		return {
 			stroke,
 			strokeId
 		};
+	}
+
+	function applySnapshotToStroke(snapshot: StrokeSnapshot | null, strokeId: string) {
+		removeStrokeById(strokeId);
+		if (snapshot) {
+			restoreStrokeFromSnapshot(snapshot, { strokeId });
+		} else {
+			setSelectedStroke(null);
+		}
+	}
+
+	function applyEraseChanges(changes: EraseChange[], useAfter: boolean) {
+		for (const change of changes) {
+			const dot = findDotById(change.dotId);
+			if (!dot) continue;
+			dot.depositAmount = useAfter ? change.afterAmount : change.beforeAmount;
+			dot.mesh.visible = isDotVisible(dot);
+		}
 	}
 
 	function resolveSelectedStrokeId() {
@@ -1006,7 +1069,7 @@
 		rebuildHeightMaps();
 		refreshAllDotHeights();
 		markSmoothSurfaceDirty();
-		actionHistory.push({
+		pushHistory({
 			kind: 'delete',
 			snapshot
 		});
@@ -1023,7 +1086,7 @@
 		rebuildHeightMaps();
 		refreshAllDotHeights();
 		markSmoothSurfaceDirty();
-		actionHistory.push({
+		pushHistory({
 			kind: 'delete',
 			snapshot
 		});
@@ -1040,10 +1103,11 @@
 			.multiplyScalar(shiftDistance)
 			.add(activeTangentV.clone().multiplyScalar(shiftDistance * 0.45));
 		const pasted = restoreStrokeFromSnapshot(clipboardStrokeSnapshot, { offset });
-		actionHistory.push({
+		const snapshot = captureStrokeSnapshot(pasted.strokeId);
+		if (!snapshot) return false;
+		pushHistory({
 			kind: 'draw',
-			stroke: pasted.stroke,
-			strokeId: pasted.strokeId
+			snapshot
 		});
 		return true;
 	}
@@ -1061,10 +1125,11 @@
 			.multiplyScalar(shiftDistance)
 			.add(activeTangentV.clone().multiplyScalar(shiftDistance * 0.45));
 		const duplicated = restoreStrokeFromSnapshot(snapshot, { offset });
-		actionHistory.push({
+		const duplicatedSnapshot = captureStrokeSnapshot(duplicated.strokeId);
+		if (!duplicatedSnapshot) return false;
+		pushHistory({
 			kind: 'draw',
-			stroke: duplicated.stroke,
-			strokeId: duplicated.strokeId
+			snapshot: duplicatedSnapshot
 		});
 		return true;
 	}
@@ -1083,11 +1148,13 @@
 		rebuildHeightMaps();
 		refreshAllDotHeights();
 		markSmoothSurfaceDirty();
+		const after = strokeExists(strokeId) ? captureStrokeSnapshot(strokeId) : null;
 		setSelectedStroke(strokeExists(strokeId) ? strokeId : null);
-		actionHistory.push({
+		pushHistory({
 			kind: 'snapshot',
 			strokeId,
-			before
+			before,
+			after
 		});
 		return true;
 	}
@@ -1186,6 +1253,27 @@
 		});
 	}
 
+	export function resetSelectedStrokeTransform() {
+		if (editLocked) return false;
+		const strokeId = resolveSelectedStrokeId();
+		if (!strokeId) return false;
+		const origin = strokeOriginSnapshots.get(strokeId);
+		if (!origin) return false;
+		const before = captureStrokeSnapshot(strokeId);
+		if (!before) return false;
+		const target = cloneStrokeSnapshot(origin);
+		applySnapshotToStroke(target, strokeId);
+		const after = captureStrokeSnapshot(strokeId);
+		if (!after || strokeSnapshotsEqual(before, after)) return false;
+		pushHistory({
+			kind: 'snapshot',
+			strokeId,
+			before,
+			after
+		});
+		return true;
+	}
+
 	export function sliceCutSelectedStroke() {
 		if (editLocked) return false;
 		if (!sliceEnabled) return false;
@@ -1242,7 +1330,6 @@
 		activeStroke.name = strokeId;
 		activeStroke.userData.strokeId = strokeId;
 		strokeRoot.add(activeStroke);
-		actionHistory.push({ kind: 'draw', stroke: activeStroke, strokeId });
 		strokeSupportView = activeView;
 		strokeSupportMap = new Map(stackHeightMaps[activeView]);
 		lastSurfacePoint = null;
@@ -2006,13 +2093,23 @@
 		strokeSupportView = null;
 		activeStrokeTool = 'free-draw';
 		if (finishedStrokeId) {
+			const snapshot = captureStrokeSnapshot(finishedStrokeId);
+			if (snapshot) {
+				pushHistory({
+					kind: 'draw',
+					snapshot
+				});
+				if (!strokeOriginSnapshots.has(finishedStrokeId)) {
+					strokeOriginSnapshots.set(finishedStrokeId, cloneStrokeSnapshot(snapshot));
+				}
+			}
 			setSelectedStroke(finishedStrokeId);
 		}
 	}
 
 	function finishErase() {
 		if (pendingEraseChanges.size > 0) {
-			actionHistory.push({
+			pushHistory({
 				kind: 'erase',
 				changes: Array.from(pendingEraseChanges.values())
 			});
@@ -2029,26 +2126,40 @@
 		if (!latest) return;
 
 		if (latest.kind === 'draw') {
-			removeStrokeById(latest.strokeId);
+			removeStrokeById(latest.snapshot.strokeId);
 		} else {
 			if (latest.kind === 'erase') {
-				for (const change of latest.changes) {
-					const dot = findDotById(change.dotId);
-					if (!dot) continue;
-					dot.depositAmount = change.beforeAmount;
-					dot.mesh.visible = isDotVisible(dot);
-				}
+				applyEraseChanges(latest.changes, false);
 			} else if (latest.kind === 'delete') {
 				restoreStrokeFromSnapshot(latest.snapshot, {
 					strokeId: latest.snapshot.strokeId
 				});
 			} else {
-				removeStrokeById(latest.strokeId);
-				restoreStrokeFromSnapshot(latest.before, {
-					strokeId: latest.before.strokeId
-				});
+				applySnapshotToStroke(latest.before, latest.strokeId);
 			}
 		}
+		redoHistory.push(latest);
+		rebuildHeightMaps();
+		refreshAllDotHeights();
+		markSmoothSurfaceDirty();
+	}
+
+	export function redoLastStroke() {
+		const latest = redoHistory.pop();
+		if (!latest) return;
+
+		if (latest.kind === 'draw') {
+			restoreStrokeFromSnapshot(latest.snapshot, {
+				strokeId: latest.snapshot.strokeId
+			});
+		} else if (latest.kind === 'erase') {
+			applyEraseChanges(latest.changes, true);
+		} else if (latest.kind === 'delete') {
+			removeStrokeById(latest.snapshot.strokeId);
+		} else {
+			applySnapshotToStroke(latest.after, latest.strokeId);
+		}
+		actionHistory.push(latest);
 		rebuildHeightMaps();
 		refreshAllDotHeights();
 		markSmoothSurfaceDirty();
@@ -2245,6 +2356,21 @@
 		}
 
 		if (!meta) return;
+
+		if (key === 'z') {
+			if (event.shiftKey) {
+				redoLastStroke();
+			} else {
+				undoLastStroke();
+			}
+			event.preventDefault();
+			return;
+		}
+		if (key === 'y') {
+			redoLastStroke();
+			event.preventDefault();
+			return;
+		}
 
 		if (key === 'c') {
 			if (copySelectedStroke()) event.preventDefault();

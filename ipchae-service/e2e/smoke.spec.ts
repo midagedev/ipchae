@@ -24,6 +24,7 @@ test('project share page renders clone CTA', async ({ page }) => {
 test('studio renders import action', async ({ page }) => {
 	await page.goto('/studio/e2e-import-project?mode=blank');
 	await expect(page.getByRole('button', { name: '초등 모드' })).toBeVisible();
+	await expect(page.getByRole('button', { name: '다시실행' })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Select' })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Duplicate' })).toBeVisible();
 	await page.getByRole('button', { name: '초등 모드' }).click();

@@ -606,6 +606,13 @@
 	function undoLastStroke() {
 		stageRef?.undoLastStroke?.();
 		syncSelectedStrokeId();
+		editActionStatus = '실행취소';
+	}
+
+	function redoLastStroke() {
+		stageRef?.redoLastStroke?.();
+		syncSelectedStrokeId();
+		editActionStatus = '다시실행';
 	}
 
 	function clearAllStrokes() {
@@ -704,6 +711,16 @@
 		syncSelectedStrokeId();
 	}
 
+	function resetSelectionTransform() {
+		if (activeLayerBlocked) {
+			editActionStatus = blockedEditMessage();
+			return;
+		}
+		const ok = stageRef?.resetSelectedStrokeTransform?.();
+		editActionStatus = ok ? '트랜스폼 초기화' : '초기화할 선택 스트로크가 없습니다.';
+		syncSelectedStrokeId();
+	}
+
 	function sliceCutSelection() {
 		if (activeLayerBlocked) {
 			editActionStatus = blockedEditMessage();
@@ -751,6 +768,7 @@
 					<button type="button" class="app-btn" on:click={triggerImport}>Import</button>
 				{/if}
 				<button type="button" class="app-btn" on:click={undoLastStroke}>실행취소</button>
+				<button type="button" class="app-btn" on:click={redoLastStroke}>다시실행</button>
 				<button type="button" class="app-btn" on:click={clearAllStrokes}>지우기</button>
 				{#if !beginnerMode}
 					<button type="button" class="app-btn" on:click={zoomOut}>-</button>
@@ -1019,11 +1037,12 @@
 							<button type="button" class="mini-export-btn" on:click={() => rotateSelection(-12)}>Rotate -</button>
 							<button type="button" class="mini-export-btn" on:click={() => scaleSelection(1.08)}>Scale +</button>
 							<button type="button" class="mini-export-btn" on:click={() => scaleSelection(0.92)}>Scale -</button>
+							<button type="button" class="mini-export-btn" on:click={resetSelectionTransform}>Reset Xform</button>
 							<button type="button" class="mini-export-btn primary" on:click={sliceCutSelection}>Slice Cut</button>
 						</div>
 					{/if}
 					<p class="edit-help">{editContextLabel}</p>
-					<p class="edit-help">Shift+Click 선택 · Ctrl/Cmd+C,V,X,D · Delete/Backspace</p>
+					<p class="edit-help">Shift+Click · Ctrl/Cmd+Z,Shift+Z,Y · Ctrl/Cmd+C,V,X,D · Delete/Backspace</p>
 				</div>
 				<div class="toggle-stack">
 					{#if !beginnerMode}
