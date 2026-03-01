@@ -37,10 +37,42 @@ button {
 	letter-spacing: -0.02em;
 }
 
+.hero-meta-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+}
+
 .eyebrow {
 	margin: 0 0 8px;
 	color: #0f766e;
 	font-weight: 700;
+	font-size: 0.9rem;
+}
+
+.locale-picker {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 4px 8px;
+	border: 1px solid #d1d9ea;
+	border-radius: 999px;
+	background: #ffffff;
+	color: #1f2937;
+	font-size: 0.78rem;
+	font-weight: 700;
+}
+
+.locale-picker select {
+	border: none;
+	background: transparent;
+	color: inherit;
+	font-weight: inherit;
+	font-size: inherit;
+}
+
+.locale-icon {
 	font-size: 0.9rem;
 }
 
@@ -88,6 +120,23 @@ a.start-card {
 
 .card-title {
 	font-weight: 700;
+}
+
+.card-title-row {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.menu-icon {
+	display: inline-grid;
+	place-items: center;
+	width: 1.2rem;
+	height: 1.2rem;
+	border-radius: 999px;
+	background: #e2ebff;
+	color: #1d4ed8;
+	font-size: 0.75rem;
 }
 
 .card-desc {

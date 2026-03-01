@@ -2,10 +2,10 @@ import { expect, test } from '@playwright/test';
 
 test('home renders starter cards', async ({ page }) => {
 	await page.goto('/');
-	await expect(page.getByRole('heading', { name: 'Quick Start' })).toBeVisible();
-	await expect(page.getByRole('button', { name: /Blank/i })).toBeVisible();
-	await expect(page.getByRole('button', { name: /Free Draw First/i })).toBeVisible();
-	await expect(page.getByRole('button', { name: /Starter Scaffold/i })).toBeVisible();
+	await expect(page.getByRole('heading', { name: /Quick Start|빠른 시작|クイックスタート/i })).toBeVisible();
+	await expect(page.getByRole('button', { name: /Blank|빈 캔버스|ブランク/i })).toBeVisible();
+	await expect(page.getByRole('button', { name: /Free Draw First|자유 드로잉|フリードロー/i })).toBeVisible();
+	await expect(page.getByRole('button', { name: /Starter Scaffold|스타터 템플릿|スターターテンプレート/i })).toBeVisible();
 });
 
 test('parts route renders filters', async ({ page }) => {
@@ -31,7 +31,7 @@ test('studio renders import action', async ({ page }) => {
 	await page.getByRole('button', { name: 'Copy' }).click();
 	await expect(page.getByText('선택된 메시가 없습니다. Select 또는 Select All 후 다시 시도하세요.')).toBeVisible();
 	await page.getByRole('button', { name: '초등 모드' }).click();
-	await expect(page.getByRole('button', { name: 'Import' })).toBeVisible();
+	await expect(page.getByRole('button', { name: /Import|가져오기|読み込み/i })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Group', exact: true })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Sphere' })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Pivot Sel' })).toBeVisible();

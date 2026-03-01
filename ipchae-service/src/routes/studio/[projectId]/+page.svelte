@@ -44,6 +44,7 @@
 		studioLastSyncedAt,
 		studioSyncStatus
 	} from '$lib/core/sync/scene-sync-service';
+	import { setUiLocale, uiLocale, type UiLocale } from '$lib/core/i18n/ui-locale';
 	import type FixedDraftStageComponent from '$lib/stage/FixedDraftStage.svelte';
 
 	type StageSliceOverlay = {
@@ -54,17 +55,48 @@
 		active: boolean;
 		colorHex: string;
 	};
+	type LocalizedText = Record<UiLocale, string>;
 
-	const modeLabelMap: Record<string, string> = {
-		blank: 'Blank',
-		'free-draw': 'Free Draw First',
-		starter: 'Starter Scaffold'
+	const modeLabelMap: Record<StartMode, LocalizedText> = {
+		blank: {
+			ko: '빈 캔버스',
+			en: 'Blank',
+			ja: 'ブランク'
+		},
+		'free-draw': {
+			ko: '자유 드로잉',
+			en: 'Free Draw First',
+			ja: 'フリードロー'
+		},
+		starter: {
+			ko: '스타터',
+			en: 'Starter Scaffold',
+			ja: 'スターター'
+		}
 	};
 
-	const drawTools: Array<{ id: DrawTool; label: string }> = [
-		{ id: 'free-draw', label: 'Draw' },
-		{ id: 'fill', label: 'Fill' },
-		{ id: 'erase', label: 'Erase' }
+	const localeOptions: Array<{ id: UiLocale; label: string }> = [
+		{ id: 'ko', label: '한국어' },
+		{ id: 'en', label: 'English' },
+		{ id: 'ja', label: '日本語' }
+	];
+
+	const drawTools: Array<{ id: DrawTool; icon: string; label: LocalizedText }> = [
+		{
+			id: 'free-draw',
+			icon: '✎',
+			label: { ko: '그리기', en: 'Draw', ja: '描く' }
+		},
+		{
+			id: 'fill',
+			icon: '◍',
+			label: { ko: '채우기', en: 'Fill', ja: '塗る' }
+		},
+		{
+			id: 'erase',
+			icon: '⌫',
+			label: { ko: '지우기', en: 'Erase', ja: '消す' }
+		}
 	];
 
 	const viewTabs: Array<{ id: ViewId; label: string }> = [
@@ -127,6 +159,7 @@
 	let selectedStrokeId: string | null = null;
 	let selectedStrokeCount = 0;
 	let editCommitToken = 0;
+	let locale: UiLocale = 'ko';
 
 	let brushSize = 20;
 	let brushStrength = 0.28;
@@ -209,6 +242,7 @@
 		if (autosaveTimer) clearTimeout(autosaveTimer);
 	});
 
+	$: locale = $uiLocale;
 	$: brushStrengthPercent = Math.round(brushStrength * 100);
 	$: startMode = resolveStartMode(page.url.searchParams.get('mode'));
 	$: projectIdLabel = (page.params.projectId ?? 'local').slice(0, 8);
@@ -394,6 +428,15 @@
 	function resolveStartMode(mode: string | null): StartMode {
 		if (mode === 'free-draw' || mode === 'starter') return mode;
 		return 'blank';
+	}
+
+	function t(text: LocalizedText) {
+		return text[locale] ?? text.ko;
+	}
+
+	function onLocaleChange(event: Event) {
+		const value = (event.currentTarget as HTMLSelectElement).value as UiLocale;
+		setUiLocale(value);
 	}
 
 	function resolvePivotMode(mode: PivotMode | undefined): PivotMode {
@@ -945,11 +988,20 @@
 			</div>
 
 			<div class="appbar-group action-group">
-				<span class="mode-pill">{modeLabelMap[startMode] ?? 'Blank'}</span>
+				<span class="mode-pill">{t(modeLabelMap[startMode] ?? modeLabelMap.blank)}</span>
 				<span class="sync-pill">{localSaveLabel}</span>
 				<span class="sync-pill">{remoteSyncLabel}</span>
+				<label class="locale-select" for="studio-locale">
+					<span class="btn-icon" aria-hidden="true">🌐</span>
+					<select id="studio-locale" value={locale} on:change={onLocaleChange}>
+						{#each localeOptions as option}
+							<option value={option.id}>{option.label}</option>
+						{/each}
+					</select>
+				</label>
 				<button type="button" class="app-btn mode-toggle" on:click={toggleUxMode}>
-					{beginnerMode ? '초등 모드' : '고급 모드'}
+					<span class="btn-icon" aria-hidden="true">★</span>
+					<span>{beginnerMode ? t({ ko: '초등 모드', en: 'Beginner', ja: '初級モード' }) : t({ ko: '고급 모드', en: 'Advanced', ja: '上級モード' })}</span>
 				</button>
 				<input
 					bind:this={importInputRef}
@@ -959,20 +1011,42 @@
 					on:change={onImportFileChange}
 				/>
 				{#if !beginnerMode}
-					<button type="button" class="app-btn" on:click={triggerImport}>Import</button>
+					<button type="button" class="app-btn" on:click={triggerImport}>
+						<span class="btn-icon" aria-hidden="true">⤴</span>
+						<span>{t({ ko: '가져오기', en: 'Import', ja: '読み込み' })}</span>
+					</button>
 				{/if}
-				<button type="button" class="app-btn" on:click={undoLastStroke}>실행취소</button>
-				<button type="button" class="app-btn" on:click={redoLastStroke}>다시실행</button>
-				<button type="button" class="app-btn" on:click={clearAllStrokes}>지우기</button>
+				<button type="button" class="app-btn" on:click={undoLastStroke}>
+					<span class="btn-icon" aria-hidden="true">↶</span>
+					<span>{t({ ko: '실행취소', en: 'Undo', ja: '元に戻す' })}</span>
+				</button>
+				<button type="button" class="app-btn" on:click={redoLastStroke}>
+					<span class="btn-icon" aria-hidden="true">↷</span>
+					<span>{t({ ko: '다시실행', en: 'Redo', ja: 'やり直し' })}</span>
+				</button>
+				<button type="button" class="app-btn" on:click={clearAllStrokes}>
+					<span class="btn-icon" aria-hidden="true">⌫</span>
+					<span>{t({ ko: '지우기', en: 'Clear', ja: '消去' })}</span>
+				</button>
 				{#if !beginnerMode}
 					<button type="button" class="app-btn" on:click={zoomOut}>-</button>
 					<button type="button" class="app-btn" on:click={zoomIn}>+</button>
-					<button type="button" class="app-btn" on:click={() => stageRef?.resetMainView?.()}>Reset</button>
-					<button type="button" class="app-btn" on:click={saveCurrentPart}>Save Part</button>
-					<button type="button" class="app-btn" on:click={createShareLink}>Share</button>
+					<button type="button" class="app-btn" on:click={() => stageRef?.resetMainView?.()}>
+						<span class="btn-icon" aria-hidden="true">⟲</span>
+						<span>{t({ ko: '시점 리셋', en: 'Reset', ja: 'リセット' })}</span>
+					</button>
+					<button type="button" class="app-btn" on:click={saveCurrentPart}>
+						<span class="btn-icon" aria-hidden="true">⬒</span>
+						<span>{t({ ko: '파츠 저장', en: 'Save Part', ja: 'パーツ保存' })}</span>
+					</button>
+					<button type="button" class="app-btn" on:click={createShareLink}>
+						<span class="btn-icon" aria-hidden="true">↗</span>
+						<span>{t({ ko: '공유', en: 'Share', ja: '共有' })}</span>
+					</button>
 				{/if}
 				<button type="button" class="app-btn primary" on:click={() => exportCurrent(exportFormat)}>
-					{beginnerMode ? '내보내기' : 'Export'}
+					<span class="btn-icon" aria-hidden="true">⬇</span>
+					<span>{beginnerMode ? t({ ko: '내보내기', en: 'Export', ja: '書き出し' }) : t({ ko: '내보내기', en: 'Export', ja: '書き出し' })}</span>
 				</button>
 			</div>
 		</header>
@@ -1011,26 +1085,26 @@
 				</div>
 
 			<aside class="overlay-panel panel-left">
-				<p class="panel-title">{beginnerMode ? '도구' : 'Tools'}</p>
+				<p class="panel-title">{beginnerMode ? t({ ko: '◉ 도구', en: '◉ Tools', ja: '◉ ツール' }) : t({ ko: '◉ 도구', en: '◉ Tools', ja: '◉ ツール' })}</p>
 				{#if beginnerMode}
 					<div class="mini-block kid-guide">
-						<p class="mini-title">오늘의 순서</p>
+						<p class="mini-title">{t({ ko: '오늘의 순서', en: 'Today Plan', ja: '今日の流れ' })}</p>
 						<ol>
-							<li>브러시로 형태를 그려요</li>
-							<li>색을 골라 꾸며요</li>
-							<li>내보내기로 작품을 저장해요</li>
+							<li>{t({ ko: '브러시로 형태를 그려요', en: 'Draw the main shape', ja: 'ブラシで形を描く' })}</li>
+							<li>{t({ ko: '색을 골라 꾸며요', en: 'Pick colors and decorate', ja: '色を選んで飾る' })}</li>
+							<li>{t({ ko: '내보내기로 작품을 저장해요', en: 'Export your work', ja: '書き出して保存する' })}</li>
 						</ol>
 					</div>
 				{/if}
 				<div class="mini-block starter-block">
-					<p class="mini-title">Starter</p>
+					<p class="mini-title">{t({ ko: '◎ 스타터', en: '◎ Starter', ja: '◎ スターター' })}</p>
 					<select
 						class="starter-select"
 						bind:value={selectedStarterTemplateId}
 						disabled={!starterCatalog || starterCatalog.templates.length === 0}
 					>
 						{#if !starterCatalog}
-							<option>Loading...</option>
+							<option>{t({ ko: '로딩 중...', en: 'Loading...', ja: '読み込み中...' })}</option>
 						{:else}
 							{#each starterCatalog.templates as template}
 								<option value={template.id}>{template.name}</option>
@@ -1053,7 +1127,9 @@
 						disabled={!selectedStarterTemplate}
 						on:click={() => selectedStarterTemplate && applyStarterTemplate(selectedStarterTemplate)}
 					>
-						{beginnerMode ? '기본 캐릭터 넣기' : 'Apply Starter'}
+						{beginnerMode
+							? t({ ko: '기본 캐릭터 넣기', en: 'Apply Starter', ja: 'スターター 적용' })
+							: t({ ko: '스타터 적용', en: 'Apply Starter', ja: 'スターター適用' })}
 					</button>
 					{#if starterApplyNote}
 						<p class="starter-note">{starterApplyNote}</p>
@@ -1061,7 +1137,7 @@
 				</div>
 				{#if !beginnerMode}
 					<div class="mini-block">
-						<p class="mini-title">View</p>
+						<p class="mini-title">{t({ ko: '◴ 시점', en: '◴ View', ja: '◴ 視点' })}</p>
 						<div class="mini-segment" role="tablist" aria-label="View">
 							{#each viewTabs as view}
 								<button
@@ -1075,33 +1151,33 @@
 						</div>
 					</div>
 					<div class="mini-block">
-						<p class="mini-title">Input</p>
+						<p class="mini-title">{t({ ko: '✎ 입력', en: '✎ Input', ja: '✎ 入力' })}</p>
 						<div class="mini-segment" role="tablist" aria-label="Input mode">
 							<button
 								type="button"
 								class="mini-btn {inputMode === 'draw' ? 'active' : ''}"
 								on:click={() => selectInputMode('draw')}
 							>
-								Draw
+								{t({ ko: '그리기', en: 'Draw', ja: '描画' })}
 							</button>
 							<button
 								type="button"
 								class="mini-btn {inputMode === 'pan' ? 'active' : ''}"
 								on:click={() => selectInputMode('pan')}
 							>
-								Pan
+								{t({ ko: '이동', en: 'Pan', ja: '移動' })}
 							</button>
 						</div>
 					</div>
 					<div class="mini-block slicer-block">
-						<p class="mini-title">Slicer</p>
+						<p class="mini-title">{t({ ko: '◫ 슬라이서', en: '◫ Slicer', ja: '◫ スライサー' })}</p>
 						<label class="toggle-row" for="slice-enabled">
-							<span>Slice Mode</span>
+							<span>{t({ ko: '슬라이스 모드', en: 'Slice Mode', ja: 'スライスモード' })}</span>
 							<input id="slice-enabled" type="checkbox" bind:checked={sliceEnabled} />
 						</label>
 						<div class="layer-toolbar">
 							<button type="button" class="layer-add-btn" on:click={addSliceLayer} disabled={sliceLayers.length >= MAX_SLICE_LAYERS}>
-								+ Layer
+								+ {t({ ko: '레이어', en: 'Layer', ja: 'レイヤー' })}
 							</button>
 							<span class="layer-count">{sliceLayers.length}/{MAX_SLICE_LAYERS}</span>
 						</div>
@@ -1198,7 +1274,7 @@
 								on:click={() => setActiveSliceDepth(0)}
 								disabled={!sliceEnabled}
 							>
-								Reset
+								{t({ ko: '리셋', en: 'Reset', ja: 'リセット' })}
 							</button>
 						</div>
 					</div>
@@ -1210,12 +1286,13 @@
 								class="tool-btn {drawTool === tool.id ? 'active' : ''}"
 								on:click={() => selectDrawTool(tool.id)}
 							>
-								{tool.label}
+								<span class="btn-icon" aria-hidden="true">{tool.icon}</span>
+								<span>{t(tool.label)}</span>
 							</button>
 					{/each}
 				</div>
 				<div class="mini-block edit-block">
-					<p class="mini-title">{beginnerMode ? '선택/복제' : 'Edit Actions'}</p>
+					<p class="mini-title">{beginnerMode ? t({ ko: '◉ 선택/복제', en: '◉ Select/Duplicate', ja: '◉ 選択/複製' }) : t({ ko: '◉ 편집 액션', en: '◉ Edit Actions', ja: '◉ 編集アクション' })}</p>
 					<div class="edit-actions {beginnerMode ? 'beginner' : ''}">
 						<button type="button" class="tool-btn" on:click={selectLastStroke}>Select</button>
 						<button type="button" class="tool-btn" on:click={selectAllStrokes}>Select All</button>
@@ -1544,6 +1621,29 @@
 		font-weight: 700;
 	}
 
+	.locale-select {
+		height: 30px;
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 0 8px;
+		border: 1px solid rgba(255, 255, 255, 0.18);
+		border-radius: 8px;
+		background: #202732;
+		color: #e6eefb;
+		font-size: 0.7rem;
+		font-weight: 700;
+	}
+
+	.locale-select select {
+		border: none;
+		background: transparent;
+		color: inherit;
+		font-size: inherit;
+		font-weight: inherit;
+		min-width: 80px;
+	}
+
 	.app-btn {
 		height: 30px;
 		padding: 0 10px;
@@ -1554,6 +1654,9 @@
 		font-size: 0.72rem;
 		font-weight: 700;
 		cursor: pointer;
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
 	}
 
 	.app-btn.primary {
@@ -1566,6 +1669,11 @@
 		border-color: rgba(253, 230, 138, 0.7);
 		background: rgba(146, 64, 14, 0.76);
 		color: #fff7dd;
+	}
+
+	.btn-icon {
+		line-height: 1;
+		font-size: 0.82rem;
 	}
 
 	.workspace-shell {
