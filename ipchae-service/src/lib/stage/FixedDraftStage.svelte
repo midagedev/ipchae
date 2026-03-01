@@ -82,9 +82,15 @@
 	export let drawLocked = false;
 	export let editLocked = false;
 	export let drawTool: DrawTool = 'free-draw';
+	export let transformPivotMode: PivotMode = 'selection';
+	export let gridSnapEnabled = false;
+	export let gridSnapStep = 0.12;
+	export let angleSnapEnabled = false;
+	export let angleSnapDegrees = 12;
 
 	type DrawTool = 'free-draw' | 'fill' | 'erase';
 	type PrimitiveKind = 'sphere' | 'box' | 'cylinder';
+	type PivotMode = 'object' | 'selection' | 'world';
 	type InputMode = 'draw' | 'pan';
 	type BrushDotMesh = THREE.Mesh<THREE.SphereGeometry, THREE.MeshStandardMaterial>;
 	type SmoothSurfaceMesh = MarchingCubes;
@@ -1618,6 +1624,33 @@
 		return center;
 	}
 
+	function resolveGridSnapStep() {
+		return THREE.MathUtils.clamp(gridSnapStep, 0.001, 10);
+	}
+
+	function resolveAngleSnapStep() {
+		return THREE.MathUtils.clamp(angleSnapDegrees, 0.1, 180);
+	}
+
+	function snapByStep(value: number, step: number) {
+		if (!Number.isFinite(value) || !Number.isFinite(step) || step <= 0) return value;
+		return Math.round(value / step) * step;
+	}
+
+	function getTransformPivot(
+		strokeId: string,
+		selectedIds: string[],
+		sharedSelectionCenter: THREE.Vector3 | null
+	) {
+		if (transformPivotMode === 'world') {
+			return new THREE.Vector3(0, 0, 0);
+		}
+		if (transformPivotMode === 'selection') {
+			return sharedSelectionCenter?.clone() ?? computeSelectionCenter(selectedIds);
+		}
+		return computeStrokeCenter(strokeId);
+	}
+
 	function refreshStrokeUvCoordinates(strokeId: string) {
 		for (const dot of strokeDots) {
 			if (dot.strokeId !== strokeId) continue;
@@ -1629,7 +1662,14 @@
 
 	export function translateSelectedStroke(dx: number, dy: number, dz: number) {
 		if (editLocked) return false;
-		const offset = new THREE.Vector3(dx, dy, dz);
+		const step = resolveGridSnapStep();
+		const snappedDx = gridSnapEnabled ? snapByStep(dx, step) : dx;
+		const snappedDy = gridSnapEnabled ? snapByStep(dy, step) : dy;
+		const snappedDz = gridSnapEnabled ? snapByStep(dz, step) : dz;
+		if (Math.abs(snappedDx) <= 1e-9 && Math.abs(snappedDy) <= 1e-9 && Math.abs(snappedDz) <= 1e-9) {
+			return false;
+		}
+		const offset = new THREE.Vector3(snappedDx, snappedDy, snappedDz);
 		const strokeIds = resolveSelectedStrokeIds();
 		if (!strokeIds.length) return false;
 		let changedAny = false;
@@ -1673,13 +1713,13 @@
 		if (!Number.isFinite(scaleFactor) || Math.abs(scaleFactor - 1) <= 1e-6) return false;
 		const strokeIds = resolveSelectedStrokeIds();
 		if (!strokeIds.length) return false;
-		const sharedCenter = strokeIds.length > 1 ? computeSelectionCenter(strokeIds) : null;
+		const sharedCenter = transformPivotMode === 'selection' ? computeSelectionCenter(strokeIds) : null;
 		let changedAny = false;
 		const historyEntries: HistoryEntry[] = [];
 		for (const strokeId of strokeIds) {
 			const before = captureStrokeSnapshot(strokeId);
 			if (!before) continue;
-			const center = sharedCenter?.clone() ?? computeStrokeCenter(strokeId);
+			const center = getTransformPivot(strokeId, strokeIds, sharedCenter);
 			if (!center) continue;
 			const changed = commitSnapshotMutation(
 				strokeId,
@@ -1709,17 +1749,19 @@
 	export function rotateSelectedStroke(degrees: number) {
 		if (editLocked) return false;
 		if (!Number.isFinite(degrees) || Math.abs(degrees) <= 1e-6) return false;
-		const radians = THREE.MathUtils.degToRad(degrees);
+		const effectiveDegrees = angleSnapEnabled ? snapByStep(degrees, resolveAngleSnapStep()) : degrees;
+		if (Math.abs(effectiveDegrees) <= 1e-6) return false;
+		const radians = THREE.MathUtils.degToRad(effectiveDegrees);
 		const rotation = new THREE.Matrix4().makeRotationAxis(activeNormal.clone().normalize(), radians);
 		const strokeIds = resolveSelectedStrokeIds();
 		if (!strokeIds.length) return false;
-		const sharedCenter = strokeIds.length > 1 ? computeSelectionCenter(strokeIds) : null;
+		const sharedCenter = transformPivotMode === 'selection' ? computeSelectionCenter(strokeIds) : null;
 		let changedAny = false;
 		const historyEntries: HistoryEntry[] = [];
 		for (const strokeId of strokeIds) {
 			const before = captureStrokeSnapshot(strokeId);
 			if (!before) continue;
-			const center = sharedCenter?.clone() ?? computeStrokeCenter(strokeId);
+			const center = getTransformPivot(strokeId, strokeIds, sharedCenter);
 			if (!center) continue;
 			const changed = commitSnapshotMutation(
 				strokeId,
@@ -1770,7 +1812,7 @@
 		return pushHistoryEntries(historyEntries);
 	}
 
-	export function sliceCutSelectedStroke() {
+	export function planeCutSelectedStroke(keepSide: 'largest' | 'positive' | 'negative' = 'largest') {
 		if (editLocked) return false;
 		if (!sliceEnabled) return false;
 		const strokeIds = resolveSelectedStrokeIds();
@@ -1793,7 +1835,8 @@
 				else negative += 1;
 			}
 			if (positive === 0 || negative === 0) continue;
-			const keepPositive = positive >= negative;
+			const keepPositive =
+				keepSide === 'positive' ? true : keepSide === 'negative' ? false : positive >= negative;
 
 			const changed = commitSnapshotMutation(
 				strokeId,
@@ -1829,6 +1872,10 @@
 		}
 		if (!cutAny) return false;
 		return pushHistoryEntries(historyEntries);
+	}
+
+	export function sliceCutSelectedStroke() {
+		return planeCutSelectedStroke('largest');
 	}
 
 	function startStroke(point: THREE.Vector3) {

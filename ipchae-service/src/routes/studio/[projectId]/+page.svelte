@@ -132,6 +132,16 @@
 	let mirrorDraw = false;
 	let smoothMeshView = true;
 	let drawTool: DrawTool = 'free-draw';
+	let transformPivotMode: 'object' | 'selection' | 'world' = 'selection';
+	let gridSnapEnabled = false;
+	let gridSnapStep = 0.12;
+	let angleSnapEnabled = false;
+	let angleSnapDegrees = 12;
+	let moveInputX = 0;
+	let moveInputY = 0;
+	let moveInputZ = 0;
+	let rotateInputDegrees = 12;
+	let scaleInputFactor = 1.08;
 	let activeView: ViewId = 'front';
 	let inputMode: InputMode = 'draw';
 	let sliceEnabled = false;
@@ -758,6 +768,44 @@
 		syncSelectedStrokeId();
 	}
 
+	function applyNumericMove() {
+		if (activeLayerBlocked) {
+			editActionStatus = blockedEditMessage();
+			return;
+		}
+		const ok = stageRef?.translateSelectedStroke?.(moveInputX, moveInputY, moveInputZ);
+		editActionStatus = ok
+			? `수치 이동 (${moveInputX.toFixed(2)}, ${moveInputY.toFixed(2)}, ${moveInputZ.toFixed(2)})`
+			: '선택된 스트로크가 없습니다.';
+		syncSelectedStrokeId();
+	}
+
+	function applyNumericRotate() {
+		if (activeLayerBlocked) {
+			editActionStatus = blockedEditMessage();
+			return;
+		}
+		const ok = stageRef?.rotateSelectedStroke?.(rotateInputDegrees);
+		editActionStatus = ok ? `수치 회전 ${rotateInputDegrees.toFixed(1)}°` : '선택된 스트로크가 없습니다.';
+		syncSelectedStrokeId();
+	}
+
+	function applyNumericScale() {
+		if (activeLayerBlocked) {
+			editActionStatus = blockedEditMessage();
+			return;
+		}
+		const ok = stageRef?.scaleSelectedStroke?.(scaleInputFactor);
+		editActionStatus = ok ? `수치 스케일 x${scaleInputFactor.toFixed(3)}` : '선택된 스트로크가 없습니다.';
+		syncSelectedStrokeId();
+	}
+
+	function setPivotMode(mode: 'object' | 'selection' | 'world') {
+		transformPivotMode = mode;
+		editActionStatus =
+			mode === 'object' ? 'Pivot: Object' : mode === 'selection' ? 'Pivot: Selection' : 'Pivot: World';
+	}
+
 	function resetSelectionTransform() {
 		if (activeLayerBlocked) {
 			editActionStatus = blockedEditMessage();
@@ -768,18 +816,26 @@
 		syncSelectedStrokeId();
 	}
 
-	function sliceCutSelection() {
+	function planeCutSelection(keepSide: 'largest' | 'positive' | 'negative') {
 		if (activeLayerBlocked) {
 			editActionStatus = blockedEditMessage();
 			return;
 		}
-		const ok = stageRef?.sliceCutSelectedStroke?.();
+		const ok = stageRef?.planeCutSelectedStroke?.(keepSide);
 		editActionStatus = ok
-			? '슬라이스 컷 적용'
+			? keepSide === 'positive'
+				? 'Plane Cut + 적용'
+				: keepSide === 'negative'
+					? 'Plane Cut - 적용'
+					: 'Plane Cut(큰 쪽 유지) 적용'
 			: sliceEnabled
 				? '컷팅 결과가 없습니다. 슬라이스 위치를 조정하세요.'
 				: '슬라이스 모드를 켜야 컷팅할 수 있습니다.';
 		syncSelectedStrokeId();
+	}
+
+	function sliceCutSelection() {
+		planeCutSelection('largest');
 	}
 </script>
 
@@ -850,6 +906,11 @@
 							drawLocked={activeLayerBlocked}
 							editLocked={activeLayerBlocked}
 							{drawTool}
+							{transformPivotMode}
+							{gridSnapEnabled}
+							{gridSnapStep}
+							{angleSnapEnabled}
+							{angleSnapDegrees}
 							showInternalChrome={false}
 						/>
 					{:else}
@@ -1084,6 +1145,59 @@
 							<button type="button" class="mini-export-btn" on:click={() => insertPrimitive('box')}>Box</button>
 							<button type="button" class="mini-export-btn" on:click={() => insertPrimitive('cylinder')}>Cylinder</button>
 						</div>
+						<div class="mini-segment pivot-segment" role="tablist" aria-label="Transform pivot">
+							<button
+								type="button"
+								class="mini-btn {transformPivotMode === 'selection' ? 'active' : ''}"
+								on:click={() => setPivotMode('selection')}
+							>
+								Pivot Sel
+							</button>
+							<button
+								type="button"
+								class="mini-btn {transformPivotMode === 'object' ? 'active' : ''}"
+								on:click={() => setPivotMode('object')}
+							>
+								Pivot Obj
+							</button>
+							<button
+								type="button"
+								class="mini-btn {transformPivotMode === 'world' ? 'active' : ''}"
+								on:click={() => setPivotMode('world')}
+							>
+								Pivot World
+							</button>
+						</div>
+						<div class="snap-grid">
+							<label class="toggle-row compact" for="grid-snap-enabled">
+								<span>Grid Snap</span>
+								<input id="grid-snap-enabled" type="checkbox" bind:checked={gridSnapEnabled} />
+							</label>
+							<input
+								class="snap-input"
+								type="number"
+								min="0.01"
+								max="2"
+								step="0.01"
+								bind:value={gridSnapStep}
+								disabled={!gridSnapEnabled}
+								aria-label="Grid snap step"
+							/>
+							<label class="toggle-row compact" for="angle-snap-enabled">
+								<span>Angle Snap</span>
+								<input id="angle-snap-enabled" type="checkbox" bind:checked={angleSnapEnabled} />
+							</label>
+							<input
+								class="snap-input"
+								type="number"
+								min="1"
+								max="90"
+								step="1"
+								bind:value={angleSnapDegrees}
+								disabled={!angleSnapEnabled}
+								aria-label="Angle snap degrees"
+							/>
+						</div>
 						<div class="transform-grid">
 							<button type="button" class="mini-export-btn" on:click={() => nudgeSelection(-0.12, 0)}>Move L</button>
 							<button type="button" class="mini-export-btn" on:click={() => nudgeSelection(0.12, 0)}>Move R</button>
@@ -1094,12 +1208,30 @@
 							<button type="button" class="mini-export-btn" on:click={() => scaleSelection(1.08)}>Scale +</button>
 							<button type="button" class="mini-export-btn" on:click={() => scaleSelection(0.92)}>Scale -</button>
 							<button type="button" class="mini-export-btn" on:click={resetSelectionTransform}>Reset Xform</button>
+							<button type="button" class="mini-export-btn" on:click={() => planeCutSelection('positive')}>Plane Cut +</button>
+							<button type="button" class="mini-export-btn" on:click={() => planeCutSelection('negative')}>Plane Cut -</button>
 							<button type="button" class="mini-export-btn primary" on:click={sliceCutSelection}>Slice Cut</button>
+						</div>
+						<div class="numeric-panel">
+							<p class="mini-title">Numeric Transform</p>
+							<div class="numeric-row">
+								<input type="number" step="0.01" bind:value={moveInputX} aria-label="Move X" />
+								<input type="number" step="0.01" bind:value={moveInputY} aria-label="Move Y" />
+								<input type="number" step="0.01" bind:value={moveInputZ} aria-label="Move Z" />
+								<button type="button" class="mini-export-btn" on:click={applyNumericMove}>Move</button>
+							</div>
+							<div class="numeric-row">
+								<input type="number" step="1" bind:value={rotateInputDegrees} aria-label="Rotate deg" />
+								<button type="button" class="mini-export-btn" on:click={applyNumericRotate}>Rotate</button>
+								<input type="number" step="0.01" min="0.1" bind:value={scaleInputFactor} aria-label="Scale factor" />
+								<button type="button" class="mini-export-btn" on:click={applyNumericScale}>Scale</button>
+							</div>
 						</div>
 					{/if}
 					<p class="edit-help">{editContextLabel}</p>
 					<p class="edit-help">Shift+Click 단일 선택 · Ctrl/Cmd+Shift+Click 추가/제거 · Ctrl/Cmd+A 전체선택</p>
 					<p class="edit-help">Ctrl/Cmd+G 그룹 · Ctrl/Cmd+Shift+G 그룹해제</p>
+					<p class="edit-help">Pivot 모드 + Grid/Angle Snap + Numeric Transform 지원</p>
 					<p class="edit-help">Ctrl/Cmd+Z,Shift+Z,Y · Ctrl/Cmd+C,V,X,D · Delete/Backspace</p>
 				</div>
 				<div class="toggle-stack">
@@ -1700,6 +1832,59 @@
 
 	.primitive-grid {
 		margin-top: 10px;
+	}
+
+	.pivot-segment {
+		margin-top: 8px;
+	}
+
+	.snap-grid {
+		margin-top: 8px;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) 72px;
+		gap: 6px;
+		align-items: center;
+	}
+
+	.toggle-row.compact {
+		font-size: 0.68rem;
+	}
+
+	.snap-input {
+		height: 26px;
+		border-radius: 6px;
+		border: 1px solid rgba(255, 255, 255, 0.15);
+		background: rgba(35, 42, 53, 0.95);
+		color: #e5eefc;
+		padding: 0 6px;
+		font-size: 0.66rem;
+	}
+
+	.numeric-panel {
+		margin-top: 10px;
+		display: grid;
+		gap: 6px;
+		padding: 8px;
+		border: 1px solid rgba(255, 255, 255, 0.12);
+		border-radius: 8px;
+		background: rgba(24, 30, 40, 0.55);
+	}
+
+	.numeric-row {
+		display: grid;
+		grid-template-columns: repeat(4, minmax(0, 1fr));
+		gap: 6px;
+	}
+
+	.numeric-row input {
+		height: 28px;
+		border-radius: 6px;
+		border: 1px solid rgba(255, 255, 255, 0.15);
+		background: rgba(35, 42, 53, 0.95);
+		color: #e5eefc;
+		padding: 0 6px;
+		font-size: 0.66rem;
+		min-width: 0;
 	}
 
 	.edit-help {

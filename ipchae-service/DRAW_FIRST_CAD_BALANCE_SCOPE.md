@@ -73,6 +73,23 @@
 2. 기계 CAD 수준 Feature Tree
 3. 고급 히스토리 브랜칭(노드 그래프형)
 
+## 4.5 진행 현황 (2026-03-01)
+완료:
+1. Scope A 전체(드로잉/선택/복제/트랜스폼/그룹/프리미티브/기본 컷)
+2. 배치 편집 트랜잭션 undo/redo 1회 처리
+3. 그룹 ID 안전 복제/붙여넣기
+
+진행(부분 완료):
+1. Scope B-1 수치 Transform 패널: 완료
+2. Scope B-2 Pivot 모드(Object/Selection/World): 완료
+3. Scope B-3 Grid/Angle Snap: 기본 완료(Transform 단계)
+4. Scope B-4 Plane Cut 독립 툴: 기본 완료(keep side 옵션)
+
+남은 Scope B:
+1. Snap의 드로잉 경로 적용 범위 확대 여부 결정
+2. Selection/Layer/Slice 충돌 문구 표준화 최종안
+3. Transaction 단위 원격 Sync 정책 문서/코드 일치화
+
 ## 5. 기능 게이팅 기준
 새 기능은 아래를 모두 통과해야 기본 노출 가능:
 1. 첫 드로잉 시작 시간(TTFD) 악화 없음

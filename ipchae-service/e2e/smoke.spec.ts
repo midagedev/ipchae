@@ -32,6 +32,8 @@ test('studio renders import action', async ({ page }) => {
 	await expect(page.getByRole('button', { name: 'Import' })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Group', exact: true })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Sphere' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Pivot Sel' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Plane Cut +' })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Delete' })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Slice Cut' })).toBeVisible();
 });

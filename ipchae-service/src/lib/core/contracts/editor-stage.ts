@@ -53,5 +53,6 @@ export type EditorStageHandle = {
 	scaleSelectedStroke: (scaleFactor: number) => boolean;
 	rotateSelectedStroke: (degrees: number) => boolean;
 	resetSelectedStrokeTransform: () => boolean;
+	planeCutSelectedStroke: (keepSide?: 'largest' | 'positive' | 'negative') => boolean;
 	sliceCutSelectedStroke: () => boolean;
 };
