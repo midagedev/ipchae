@@ -1098,6 +1098,22 @@
 		};
 	}
 
+	function remapSnapshotGroups(snapshots: StrokeSnapshot[]) {
+		const groupIdMap = new Map<string, string>();
+		return snapshots.map((snapshot) => {
+			const cloned = cloneStrokeSnapshot(snapshot);
+			if (!cloned.groupId) return cloned;
+			const sourceGroupId = cloned.groupId;
+			let mappedGroupId = groupIdMap.get(sourceGroupId);
+			if (!mappedGroupId) {
+				mappedGroupId = nextGroupId();
+				groupIdMap.set(sourceGroupId, mappedGroupId);
+			}
+			cloned.groupId = mappedGroupId;
+			return cloned;
+		});
+	}
+
 	function strokeSnapshotsEqual(a: StrokeSnapshot, b: StrokeSnapshot) {
 		if (a.strokeId !== b.strokeId) return false;
 		if (a.groupId !== b.groupId) return false;
@@ -1459,6 +1475,7 @@
 		if (editLocked) return false;
 		if (!clipboardStrokeSnapshots.length) return false;
 		pasteSerial += 1;
+		const sourceSnapshots = remapSnapshotGroups(clipboardStrokeSnapshots);
 		const shiftDistance = brushRadius * (1.6 + pasteSerial * 0.9);
 		const baseOffset = activeTangentU
 			.clone()
@@ -1466,8 +1483,8 @@
 			.add(activeTangentV.clone().multiplyScalar(shiftDistance * 0.45));
 		let pastedAny = false;
 		const historyEntries: HistoryEntry[] = [];
-		for (let index = 0; index < clipboardStrokeSnapshots.length; index += 1) {
-			const snapshot = clipboardStrokeSnapshots[index];
+		for (let index = 0; index < sourceSnapshots.length; index += 1) {
+			const snapshot = sourceSnapshots[index];
 			const spreadOffset = activeTangentU
 				.clone()
 				.multiplyScalar(index * brushRadius * 0.36)
@@ -1497,6 +1514,7 @@
 			snapshots.push(snapshot);
 		}
 		if (!snapshots.length) return false;
+		const sourceSnapshots = remapSnapshotGroups(snapshots);
 		pasteSerial += 1;
 		const shiftDistance = brushRadius * (1.6 + pasteSerial * 0.9);
 		const baseOffset = activeTangentU
@@ -1505,8 +1523,8 @@
 			.add(activeTangentV.clone().multiplyScalar(shiftDistance * 0.45));
 		let duplicatedAny = false;
 		const historyEntries: HistoryEntry[] = [];
-		for (let index = 0; index < snapshots.length; index += 1) {
-			const snapshot = snapshots[index];
+		for (let index = 0; index < sourceSnapshots.length; index += 1) {
+			const snapshot = sourceSnapshots[index];
 			const spreadOffset = activeTangentU
 				.clone()
 				.multiplyScalar(index * brushRadius * 0.36)
