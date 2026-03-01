@@ -137,6 +137,10 @@
 				strokeId: string;
 				before: StrokeSnapshot;
 				after: StrokeSnapshot | null;
+		  }
+		| {
+				kind: 'transaction';
+				entries: HistoryEntry[];
 		  };
 
 	let activeView: ViewId = 'front';
@@ -834,11 +838,25 @@
 		dispatch('selectionchange', { strokeId: selectedStrokeId });
 	}
 
+	function findLatestDrawStrokeIdFromEntry(entry: HistoryEntry): string | null {
+		if (entry.kind === 'draw') {
+			return entry.snapshot.strokeId;
+		}
+		if (entry.kind === 'transaction') {
+			for (let i = entry.entries.length - 1; i >= 0; i -= 1) {
+				const child = findLatestDrawStrokeIdFromEntry(entry.entries[i]);
+				if (child) return child;
+			}
+		}
+		return null;
+	}
+
 	function findLastSelectableStrokeId() {
 		for (let i = actionHistory.length - 1; i >= 0; i -= 1) {
 			const entry = actionHistory[i];
-			if (entry.kind !== 'draw') continue;
-			if (strokeExists(entry.snapshot.strokeId)) return entry.snapshot.strokeId;
+			const candidateStrokeId = findLatestDrawStrokeIdFromEntry(entry);
+			if (!candidateStrokeId) continue;
+			if (strokeExists(candidateStrokeId)) return candidateStrokeId;
 		}
 		const fallback = strokeRoot.children[strokeRoot.children.length - 1];
 		if (!fallback) return null;
@@ -1066,6 +1084,19 @@
 	function pushHistory(entry: HistoryEntry) {
 		actionHistory.push(entry);
 		redoHistory.length = 0;
+	}
+
+	function pushHistoryEntries(entries: HistoryEntry[]) {
+		if (!entries.length) return false;
+		if (entries.length === 1) {
+			pushHistory(entries[0]);
+			return true;
+		}
+		pushHistory({
+			kind: 'transaction',
+			entries
+		});
+		return true;
 	}
 
 	function disposeStrokeMeshes(stroke: THREE.Group) {
@@ -1308,13 +1339,14 @@
 		rebuildHeightMaps();
 		refreshAllDotHeights();
 		markSmoothSurfaceDirty();
+		const historyEntries: HistoryEntry[] = [];
 		for (const snapshot of snapshots) {
-			pushHistory({
+			historyEntries.push({
 				kind: 'delete',
 				snapshot
 			});
 		}
-		return true;
+		return pushHistoryEntries(historyEntries);
 	}
 
 	export function deleteSelectedStroke() {
@@ -1332,13 +1364,14 @@
 		rebuildHeightMaps();
 		refreshAllDotHeights();
 		markSmoothSurfaceDirty();
+		const historyEntries: HistoryEntry[] = [];
 		for (const snapshot of snapshots) {
-			pushHistory({
+			historyEntries.push({
 				kind: 'delete',
 				snapshot
 			});
 		}
-		return true;
+		return pushHistoryEntries(historyEntries);
 	}
 
 	export function pasteCopiedStroke() {
@@ -1351,6 +1384,7 @@
 			.multiplyScalar(shiftDistance)
 			.add(activeTangentV.clone().multiplyScalar(shiftDistance * 0.45));
 		let pastedAny = false;
+		const historyEntries: HistoryEntry[] = [];
 		for (let index = 0; index < clipboardStrokeSnapshots.length; index += 1) {
 			const snapshot = clipboardStrokeSnapshots[index];
 			const spreadOffset = activeTangentU
@@ -1361,13 +1395,14 @@
 			const pasted = restoreStrokeFromSnapshot(snapshot, { offset });
 			const committed = captureStrokeSnapshot(pasted.strokeId);
 			if (!committed) continue;
-			pushHistory({
+			historyEntries.push({
 				kind: 'draw',
 				snapshot: committed
 			});
 			pastedAny = true;
 		}
-		return pastedAny;
+		if (!pastedAny) return false;
+		return pushHistoryEntries(historyEntries);
 	}
 
 	export function duplicateSelectedStroke() {
@@ -1388,6 +1423,7 @@
 			.multiplyScalar(shiftDistance)
 			.add(activeTangentV.clone().multiplyScalar(shiftDistance * 0.45));
 		let duplicatedAny = false;
+		const historyEntries: HistoryEntry[] = [];
 		for (let index = 0; index < snapshots.length; index += 1) {
 			const snapshot = snapshots[index];
 			const spreadOffset = activeTangentU
@@ -1398,13 +1434,14 @@
 			const duplicated = restoreStrokeFromSnapshot(snapshot, { offset });
 			const duplicatedSnapshot = captureStrokeSnapshot(duplicated.strokeId);
 			if (!duplicatedSnapshot) continue;
-			pushHistory({
+			historyEntries.push({
 				kind: 'draw',
 				snapshot: duplicatedSnapshot
 			});
 			duplicatedAny = true;
 		}
-		return duplicatedAny;
+		if (!duplicatedAny) return false;
+		return pushHistoryEntries(historyEntries);
 	}
 
 	export function insertPrimitiveMesh(kind: PrimitiveKind) {
@@ -1430,7 +1467,10 @@
 	function commitSnapshotMutation(
 		strokeId: string,
 		before: StrokeSnapshot,
-		mutate: (targetStrokeId: string) => boolean
+		mutate: (targetStrokeId: string) => boolean,
+		options?: {
+			historySink?: HistoryEntry[];
+		}
 	) {
 		const changed = mutate(strokeId);
 		if (!changed) return false;
@@ -1439,12 +1479,17 @@
 		markSmoothSurfaceDirty();
 		const after = strokeExists(strokeId) ? captureStrokeSnapshot(strokeId) : null;
 		setSelectedStroke(strokeExists(strokeId) ? strokeId : null);
-		pushHistory({
+		const entry: HistoryEntry = {
 			kind: 'snapshot',
 			strokeId,
 			before,
 			after
-		});
+		};
+		if (options?.historySink) {
+			options.historySink.push(entry);
+		} else {
+			pushHistory(entry);
+		}
 		return true;
 	}
 
@@ -1474,21 +1519,30 @@
 		const strokeIds = resolveSelectedStrokeIds();
 		if (!strokeIds.length) return false;
 		let changedAny = false;
+		const historyEntries: HistoryEntry[] = [];
 		for (const strokeId of strokeIds) {
 			const before = captureStrokeSnapshot(strokeId);
 			if (!before) continue;
-			const changed = commitSnapshotMutation(strokeId, before, (targetStrokeId) => {
-				const dots = getStrokeDots(targetStrokeId);
-				if (dots.length === 0) return false;
-				for (const dot of dots) {
-					dot.basePoint.add(offset);
+			const changed = commitSnapshotMutation(
+				strokeId,
+				before,
+				(targetStrokeId) => {
+					const dots = getStrokeDots(targetStrokeId);
+					if (dots.length === 0) return false;
+					for (const dot of dots) {
+						dot.basePoint.add(offset);
+					}
+					refreshStrokeUvCoordinates(targetStrokeId);
+					return true;
+				},
+				{
+					historySink: historyEntries
 				}
-				refreshStrokeUvCoordinates(targetStrokeId);
-				return true;
-			});
+			);
 			if (changed) changedAny = true;
 		}
-		return changedAny;
+		if (!changedAny) return false;
+		return pushHistoryEntries(historyEntries);
 	}
 
 	export function nudgeSelectedStroke(deltaU: number, deltaV: number, deltaN = 0) {
@@ -1506,26 +1560,35 @@
 		const strokeIds = resolveSelectedStrokeIds();
 		if (!strokeIds.length) return false;
 		let changedAny = false;
+		const historyEntries: HistoryEntry[] = [];
 		for (const strokeId of strokeIds) {
 			const before = captureStrokeSnapshot(strokeId);
 			if (!before) continue;
 			const center = computeStrokeCenter(strokeId);
 			if (!center) continue;
-			const changed = commitSnapshotMutation(strokeId, before, (targetStrokeId) => {
-				const dots = getStrokeDots(targetStrokeId);
-				if (dots.length === 0) return false;
-				const safeScale = THREE.MathUtils.clamp(scaleFactor, 0.25, 4);
-				for (const dot of dots) {
-					dot.basePoint.sub(center).multiplyScalar(safeScale).add(center);
-					dot.radius = Math.max(0.001, dot.radius * safeScale);
-					dot.depositRadius = Math.max(0.001, dot.depositRadius * safeScale);
+			const changed = commitSnapshotMutation(
+				strokeId,
+				before,
+				(targetStrokeId) => {
+					const dots = getStrokeDots(targetStrokeId);
+					if (dots.length === 0) return false;
+					const safeScale = THREE.MathUtils.clamp(scaleFactor, 0.25, 4);
+					for (const dot of dots) {
+						dot.basePoint.sub(center).multiplyScalar(safeScale).add(center);
+						dot.radius = Math.max(0.001, dot.radius * safeScale);
+						dot.depositRadius = Math.max(0.001, dot.depositRadius * safeScale);
+					}
+					refreshStrokeUvCoordinates(targetStrokeId);
+					return true;
+				},
+				{
+					historySink: historyEntries
 				}
-				refreshStrokeUvCoordinates(targetStrokeId);
-				return true;
-			});
+			);
 			if (changed) changedAny = true;
 		}
-		return changedAny;
+		if (!changedAny) return false;
+		return pushHistoryEntries(historyEntries);
 	}
 
 	export function rotateSelectedStroke(degrees: number) {
@@ -1536,23 +1599,32 @@
 		const strokeIds = resolveSelectedStrokeIds();
 		if (!strokeIds.length) return false;
 		let changedAny = false;
+		const historyEntries: HistoryEntry[] = [];
 		for (const strokeId of strokeIds) {
 			const before = captureStrokeSnapshot(strokeId);
 			if (!before) continue;
 			const center = computeStrokeCenter(strokeId);
 			if (!center) continue;
-			const changed = commitSnapshotMutation(strokeId, before, (targetStrokeId) => {
-				const dots = getStrokeDots(targetStrokeId);
-				if (dots.length === 0) return false;
-				for (const dot of dots) {
-					dot.basePoint.sub(center).applyMatrix4(rotation).add(center);
+			const changed = commitSnapshotMutation(
+				strokeId,
+				before,
+				(targetStrokeId) => {
+					const dots = getStrokeDots(targetStrokeId);
+					if (dots.length === 0) return false;
+					for (const dot of dots) {
+						dot.basePoint.sub(center).applyMatrix4(rotation).add(center);
+					}
+					refreshStrokeUvCoordinates(targetStrokeId);
+					return true;
+				},
+				{
+					historySink: historyEntries
 				}
-				refreshStrokeUvCoordinates(targetStrokeId);
-				return true;
-			});
+			);
 			if (changed) changedAny = true;
 		}
-		return changedAny;
+		if (!changedAny) return false;
+		return pushHistoryEntries(historyEntries);
 	}
 
 	export function resetSelectedStrokeTransform() {
@@ -1560,6 +1632,7 @@
 		const strokeIds = resolveSelectedStrokeIds();
 		if (!strokeIds.length) return false;
 		let resetAny = false;
+		const historyEntries: HistoryEntry[] = [];
 		for (const strokeId of strokeIds) {
 			const origin = strokeOriginSnapshots.get(strokeId);
 			if (!origin) continue;
@@ -1569,7 +1642,7 @@
 			applySnapshotToStroke(target, strokeId);
 			const after = captureStrokeSnapshot(strokeId);
 			if (!after || strokeSnapshotsEqual(before, after)) continue;
-			pushHistory({
+			historyEntries.push({
 				kind: 'snapshot',
 				strokeId,
 				before,
@@ -1577,7 +1650,8 @@
 			});
 			resetAny = true;
 		}
-		return resetAny;
+		if (!resetAny) return false;
+		return pushHistoryEntries(historyEntries);
 	}
 
 	export function sliceCutSelectedStroke() {
@@ -1588,6 +1662,7 @@
 		const slicePoint = getActiveSlicePoint().clone();
 		const normal = activeNormal.clone().normalize();
 		let cutAny = false;
+		const historyEntries: HistoryEntry[] = [];
 		for (const strokeId of strokeIds) {
 			const before = captureStrokeSnapshot(strokeId);
 			if (!before) continue;
@@ -1604,32 +1679,40 @@
 			if (positive === 0 || negative === 0) continue;
 			const keepPositive = positive >= negative;
 
-			const changed = commitSnapshotMutation(strokeId, before, (targetStrokeId) => {
-				const stroke = getStrokeObject(targetStrokeId);
-				if (!stroke) return false;
-				let removed = 0;
-				for (let i = strokeDots.length - 1; i >= 0; i -= 1) {
-					const dot = strokeDots[i];
-					if (dot.strokeId !== targetStrokeId) continue;
-					const signed = dot.basePoint.clone().sub(slicePoint).dot(normal);
-					const shouldKeep = keepPositive ? signed >= 0 : signed < 0;
-					if (shouldKeep) continue;
-					stroke.remove(dot.mesh);
-					dot.mesh.material.dispose();
-					strokeDots.splice(i, 1);
-					removed += 1;
-				}
-				if (removed === 0) return false;
+			const changed = commitSnapshotMutation(
+				strokeId,
+				before,
+				(targetStrokeId) => {
+					const stroke = getStrokeObject(targetStrokeId);
+					if (!stroke) return false;
+					let removed = 0;
+					for (let i = strokeDots.length - 1; i >= 0; i -= 1) {
+						const dot = strokeDots[i];
+						if (dot.strokeId !== targetStrokeId) continue;
+						const signed = dot.basePoint.clone().sub(slicePoint).dot(normal);
+						const shouldKeep = keepPositive ? signed >= 0 : signed < 0;
+						if (shouldKeep) continue;
+						stroke.remove(dot.mesh);
+						dot.mesh.material.dispose();
+						strokeDots.splice(i, 1);
+						removed += 1;
+					}
+					if (removed === 0) return false;
 
-				const remaining = strokeDots.some((dot) => dot.strokeId === targetStrokeId);
-				if (!remaining) {
-					strokeRoot.remove(stroke);
+					const remaining = strokeDots.some((dot) => dot.strokeId === targetStrokeId);
+					if (!remaining) {
+						strokeRoot.remove(stroke);
+					}
+					return true;
+				},
+				{
+					historySink: historyEntries
 				}
-				return true;
-			});
+			);
 			if (changed) cutAny = true;
 		}
-		return cutAny;
+		if (!cutAny) return false;
+		return pushHistoryEntries(historyEntries);
 	}
 
 	function startStroke(point: THREE.Vector3) {
@@ -2431,23 +2514,59 @@
 		activeStrokeTool = 'free-draw';
 	}
 
+	function undoHistoryEntry(entry: HistoryEntry) {
+		if (entry.kind === 'draw') {
+			removeStrokeById(entry.snapshot.strokeId);
+			return;
+		}
+		if (entry.kind === 'erase') {
+			applyEraseChanges(entry.changes, false);
+			return;
+		}
+		if (entry.kind === 'delete') {
+			restoreStrokeFromSnapshot(entry.snapshot, {
+				strokeId: entry.snapshot.strokeId
+			});
+			return;
+		}
+		if (entry.kind === 'snapshot') {
+			applySnapshotToStroke(entry.before, entry.strokeId);
+			return;
+		}
+		for (let i = entry.entries.length - 1; i >= 0; i -= 1) {
+			undoHistoryEntry(entry.entries[i]);
+		}
+	}
+
+	function redoHistoryEntry(entry: HistoryEntry) {
+		if (entry.kind === 'draw') {
+			restoreStrokeFromSnapshot(entry.snapshot, {
+				strokeId: entry.snapshot.strokeId
+			});
+			return;
+		}
+		if (entry.kind === 'erase') {
+			applyEraseChanges(entry.changes, true);
+			return;
+		}
+		if (entry.kind === 'delete') {
+			removeStrokeById(entry.snapshot.strokeId);
+			return;
+		}
+		if (entry.kind === 'snapshot') {
+			applySnapshotToStroke(entry.after, entry.strokeId);
+			return;
+		}
+		for (const child of entry.entries) {
+			redoHistoryEntry(child);
+		}
+	}
+
 	export function undoLastStroke() {
 		const latest = actionHistory.pop();
 		if (!latest) return;
 
-		if (latest.kind === 'draw') {
-			removeStrokeById(latest.snapshot.strokeId);
-		} else {
-			if (latest.kind === 'erase') {
-				applyEraseChanges(latest.changes, false);
-			} else if (latest.kind === 'delete') {
-				restoreStrokeFromSnapshot(latest.snapshot, {
-					strokeId: latest.snapshot.strokeId
-				});
-			} else {
-				applySnapshotToStroke(latest.before, latest.strokeId);
-			}
-		}
+		undoHistoryEntry(latest);
 		redoHistory.push(latest);
 		rebuildHeightMaps();
 		refreshAllDotHeights();
@@ -2458,17 +2577,7 @@
 		const latest = redoHistory.pop();
 		if (!latest) return;
 
-		if (latest.kind === 'draw') {
-			restoreStrokeFromSnapshot(latest.snapshot, {
-				strokeId: latest.snapshot.strokeId
-			});
-		} else if (latest.kind === 'erase') {
-			applyEraseChanges(latest.changes, true);
-		} else if (latest.kind === 'delete') {
-			removeStrokeById(latest.snapshot.strokeId);
-		} else {
-			applySnapshotToStroke(latest.after, latest.strokeId);
-		}
+		redoHistoryEntry(latest);
 		actionHistory.push(latest);
 		rebuildHeightMaps();
 		refreshAllDotHeights();
