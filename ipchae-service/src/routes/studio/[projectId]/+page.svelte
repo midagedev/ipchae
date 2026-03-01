@@ -637,6 +637,32 @@
 		syncSelectedStrokeId();
 	}
 
+	function selectStrokeGroup() {
+		const ok = stageRef?.selectStrokeGroup?.();
+		editActionStatus = ok ? '그룹 선택' : '선택한 메시가 그룹에 속해있지 않습니다.';
+		syncSelectedStrokeId();
+	}
+
+	function groupSelectedStrokes() {
+		if (activeLayerBlocked) {
+			editActionStatus = blockedEditMessage();
+			return;
+		}
+		const ok = stageRef?.groupSelectedStrokes?.();
+		editActionStatus = ok ? '그룹 생성 (Ctrl/Cmd+G)' : '2개 이상 선택 후 그룹화할 수 있습니다.';
+		syncSelectedStrokeId();
+	}
+
+	function ungroupSelectedStrokes() {
+		if (activeLayerBlocked) {
+			editActionStatus = blockedEditMessage();
+			return;
+		}
+		const ok = stageRef?.ungroupSelectedStrokes?.();
+		editActionStatus = ok ? '그룹 해제 (Ctrl/Cmd+Shift+G)' : '그룹 해제할 선택이 없습니다.';
+		syncSelectedStrokeId();
+	}
+
 	function copySelectedStroke() {
 		const ok = stageRef?.copySelectedStroke?.();
 		editActionStatus = ok ? '선택 복사 완료 (Ctrl/Cmd+C)' : '선택된 스트로크가 없습니다.';
@@ -1044,6 +1070,9 @@
 						<button type="button" class="tool-btn" on:click={copySelectedStroke}>Copy</button>
 						<button type="button" class="tool-btn" on:click={pasteStroke}>Paste</button>
 						{#if !beginnerMode}
+							<button type="button" class="tool-btn" on:click={selectStrokeGroup}>Select Group</button>
+							<button type="button" class="tool-btn" on:click={groupSelectedStrokes}>Group</button>
+							<button type="button" class="tool-btn" on:click={ungroupSelectedStrokes}>Ungroup</button>
 							<button type="button" class="tool-btn" on:click={cutSelectedStroke}>Cut</button>
 							<button type="button" class="tool-btn" on:click={deleteSelectedStroke}>Delete</button>
 							<button type="button" class="tool-btn" on:click={clearStrokeSelection}>Clear Select</button>
@@ -1070,6 +1099,7 @@
 					{/if}
 					<p class="edit-help">{editContextLabel}</p>
 					<p class="edit-help">Shift+Click 단일 선택 · Ctrl/Cmd+Shift+Click 추가/제거 · Ctrl/Cmd+A 전체선택</p>
+					<p class="edit-help">Ctrl/Cmd+G 그룹 · Ctrl/Cmd+Shift+G 그룹해제</p>
 					<p class="edit-help">Ctrl/Cmd+Z,Shift+Z,Y · Ctrl/Cmd+C,V,X,D · Delete/Backspace</p>
 				</div>
 				<div class="toggle-stack">

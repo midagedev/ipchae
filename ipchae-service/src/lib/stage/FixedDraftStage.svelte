@@ -112,6 +112,7 @@
 	};
 	type StrokeSnapshot = {
 		strokeId: string;
+		groupId: string | null;
 		dots: StrokeSnapshotDot[];
 	};
 	type EraseChange = {
@@ -789,6 +790,25 @@
 		return null;
 	}
 
+	function nextGroupId() {
+		return `group-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+	}
+
+	function getStrokeGroupId(strokeId: string) {
+		const stroke = getStrokeObject(strokeId);
+		if (!stroke) return null;
+		return typeof stroke.userData.groupId === 'string' ? String(stroke.userData.groupId) : null;
+	}
+
+	function setStrokeGroupId(strokeId: string, groupId: string | null) {
+		const stroke = getStrokeObject(strokeId);
+		if (!stroke) return false;
+		const currentGroupId = getStrokeGroupId(strokeId);
+		if (currentGroupId === groupId) return false;
+		stroke.userData.groupId = groupId;
+		return true;
+	}
+
 	function strokeExists(strokeId: string) {
 		return Boolean(getStrokeObject(strokeId));
 	}
@@ -803,6 +823,23 @@
 		for (const dot of strokeDots) {
 			setDotSelectionVisual(dot, selectedStrokeIds.has(dot.strokeId));
 		}
+	}
+
+	function setSelectionIds(ids: string[], activeStrokeId: string | null = null) {
+		selectedStrokeIds.clear();
+		for (const strokeId of ids) {
+			selectedStrokeIds.add(strokeId);
+		}
+		if (!selectedStrokeIds.size) {
+			selectedStrokeId = null;
+		} else if (activeStrokeId && selectedStrokeIds.has(activeStrokeId)) {
+			selectedStrokeId = activeStrokeId;
+		} else {
+			selectedStrokeId = ids[ids.length - 1] ?? null;
+		}
+		applySelectionVisuals();
+		syncDotVisibilityByRenderMode();
+		dispatch('selectionchange', { strokeId: selectedStrokeId });
 	}
 
 	function setSelectedStroke(
@@ -826,16 +863,8 @@
 				selectedStrokeIds.add(nextStrokeId);
 			}
 		}
-		if (!selectedStrokeIds.size) {
-			selectedStrokeId = null;
-		} else if (nextStrokeId && selectedStrokeIds.has(nextStrokeId)) {
-			selectedStrokeId = nextStrokeId;
-		} else {
-			selectedStrokeId = Array.from(selectedStrokeIds).at(-1) ?? null;
-		}
-		applySelectionVisuals();
-		syncDotVisibilityByRenderMode();
-		dispatch('selectionchange', { strokeId: selectedStrokeId });
+		const ids = Array.from(selectedStrokeIds);
+		setSelectionIds(ids, nextStrokeId);
 	}
 
 	function findLatestDrawStrokeIdFromEntry(entry: HistoryEntry): string | null {
@@ -1029,6 +1058,7 @@
 
 		return {
 			strokeId,
+			groupId: null,
 			dots
 		};
 	}
@@ -1036,8 +1066,12 @@
 	function captureStrokeSnapshot(strokeId: string): StrokeSnapshot | null {
 		const dots = strokeDots.filter((dot) => dot.strokeId === strokeId && dot.depositAmount > 1e-6);
 		if (dots.length === 0) return null;
+		const stroke = getStrokeObject(strokeId);
+		const groupId =
+			stroke?.userData && typeof stroke.userData.groupId === 'string' ? String(stroke.userData.groupId) : null;
 		return {
 			strokeId,
+			groupId,
 			dots: dots.map((dot) => ({
 				basePoint: [dot.basePoint.x, dot.basePoint.y, dot.basePoint.z],
 				radius: dot.radius,
@@ -1052,6 +1086,7 @@
 	function cloneStrokeSnapshot(snapshot: StrokeSnapshot): StrokeSnapshot {
 		return {
 			strokeId: snapshot.strokeId,
+			groupId: snapshot.groupId,
 			dots: snapshot.dots.map((dot) => ({
 				basePoint: [...dot.basePoint] as [number, number, number],
 				radius: dot.radius,
@@ -1065,6 +1100,7 @@
 
 	function strokeSnapshotsEqual(a: StrokeSnapshot, b: StrokeSnapshot) {
 		if (a.strokeId !== b.strokeId) return false;
+		if (a.groupId !== b.groupId) return false;
 		if (a.dots.length !== b.dots.length) return false;
 		for (let i = 0; i < a.dots.length; i += 1) {
 			const left = a.dots[i];
@@ -1122,10 +1158,7 @@
 
 		if (selectedStrokeIds.has(strokeId)) {
 			selectedStrokeIds.delete(strokeId);
-			selectedStrokeId = Array.from(selectedStrokeIds).at(-1) ?? null;
-			applySelectionVisuals();
-			syncDotVisibilityByRenderMode();
-			dispatch('selectionchange', { strokeId: selectedStrokeId });
+			setSelectionIds(Array.from(selectedStrokeIds), selectedStrokeId);
 		}
 	}
 
@@ -1142,6 +1175,7 @@
 		const stroke = new THREE.Group();
 		stroke.name = strokeId;
 		stroke.userData.strokeId = strokeId;
+		stroke.userData.groupId = snapshot.groupId;
 		strokeRoot.add(stroke);
 
 		for (const dotSnapshot of snapshot.dots) {
@@ -1215,16 +1249,7 @@
 	function resolveSelectedStrokeIds() {
 		const validSelection = Array.from(selectedStrokeIds).filter((strokeId) => strokeExists(strokeId));
 		if (validSelection.length > 0) {
-			selectedStrokeIds.clear();
-			for (const strokeId of validSelection) {
-				selectedStrokeIds.add(strokeId);
-			}
-			if (!selectedStrokeId || !selectedStrokeIds.has(selectedStrokeId)) {
-				selectedStrokeId = validSelection[validSelection.length - 1] ?? null;
-			}
-			applySelectionVisuals();
-			syncDotVisibilityByRenderMode();
-			dispatch('selectionchange', { strokeId: selectedStrokeId });
+			setSelectionIds(validSelection, selectedStrokeId);
 			return validSelection;
 		}
 
@@ -1289,15 +1314,71 @@
 			ids.push(dot.strokeId);
 		}
 		if (!ids.length) return false;
-		selectedStrokeIds.clear();
-		for (const strokeId of ids) {
-			selectedStrokeIds.add(strokeId);
-		}
-		selectedStrokeId = ids[ids.length - 1] ?? null;
-		applySelectionVisuals();
-		syncDotVisibilityByRenderMode();
-		dispatch('selectionchange', { strokeId: selectedStrokeId });
+		setSelectionIds(ids);
 		return true;
+	}
+
+	export function selectStrokeGroup() {
+		const strokeId = resolveSelectedStrokeId();
+		if (!strokeId) return false;
+		const groupId = getStrokeGroupId(strokeId);
+		if (!groupId) return false;
+		const groupStrokeIds: string[] = [];
+		for (const child of strokeRoot.children) {
+			const candidateStrokeId = String((child as THREE.Group).userData?.strokeId ?? child.name);
+			if (!strokeExists(candidateStrokeId)) continue;
+			const candidateGroupId = getStrokeGroupId(candidateStrokeId);
+			if (candidateGroupId !== groupId) continue;
+			groupStrokeIds.push(candidateStrokeId);
+		}
+		if (!groupStrokeIds.length) return false;
+		setSelectionIds(groupStrokeIds, strokeId);
+		return true;
+	}
+
+	export function groupSelectedStrokes() {
+		if (editLocked) return false;
+		const strokeIds = resolveSelectedStrokeIds();
+		if (strokeIds.length < 2) return false;
+		const groupId = nextGroupId();
+		const historyEntries: HistoryEntry[] = [];
+		for (const strokeId of strokeIds) {
+			const before = captureStrokeSnapshot(strokeId);
+			if (!before) continue;
+			const changed = setStrokeGroupId(strokeId, groupId);
+			if (!changed) continue;
+			const after = captureStrokeSnapshot(strokeId);
+			if (!after) continue;
+			historyEntries.push({
+				kind: 'snapshot',
+				strokeId,
+				before,
+				after
+			});
+		}
+		return pushHistoryEntries(historyEntries);
+	}
+
+	export function ungroupSelectedStrokes() {
+		if (editLocked) return false;
+		const strokeIds = resolveSelectedStrokeIds();
+		if (!strokeIds.length) return false;
+		const historyEntries: HistoryEntry[] = [];
+		for (const strokeId of strokeIds) {
+			const before = captureStrokeSnapshot(strokeId);
+			if (!before) continue;
+			const changed = setStrokeGroupId(strokeId, null);
+			if (!changed) continue;
+			const after = captureStrokeSnapshot(strokeId);
+			if (!after) continue;
+			historyEntries.push({
+				kind: 'snapshot',
+				strokeId,
+				before,
+				after
+			});
+		}
+		return pushHistoryEntries(historyEntries);
 	}
 
 	export function clearStrokeSelection() {
@@ -2792,6 +2873,14 @@
 		if (key === 'y') {
 			redoLastStroke();
 			event.preventDefault();
+			return;
+		}
+		if (key === 'g') {
+			if (event.shiftKey) {
+				if (ungroupSelectedStrokes()) event.preventDefault();
+			} else if (groupSelectedStrokes()) {
+				event.preventDefault();
+			}
 			return;
 		}
 
