@@ -1585,6 +1585,21 @@
 		return center;
 	}
 
+	function computeSelectionCenter(strokeIds: string[]) {
+		const center = new THREE.Vector3();
+		let count = 0;
+		for (const strokeId of strokeIds) {
+			const dots = getStrokeDots(strokeId).filter((dot) => dot.depositAmount > 1e-6);
+			for (const dot of dots) {
+				center.add(dot.basePoint);
+				count += 1;
+			}
+		}
+		if (count === 0) return null;
+		center.divideScalar(count);
+		return center;
+	}
+
 	function refreshStrokeUvCoordinates(strokeId: string) {
 		for (const dot of strokeDots) {
 			if (dot.strokeId !== strokeId) continue;
@@ -1640,12 +1655,13 @@
 		if (!Number.isFinite(scaleFactor) || Math.abs(scaleFactor - 1) <= 1e-6) return false;
 		const strokeIds = resolveSelectedStrokeIds();
 		if (!strokeIds.length) return false;
+		const sharedCenter = strokeIds.length > 1 ? computeSelectionCenter(strokeIds) : null;
 		let changedAny = false;
 		const historyEntries: HistoryEntry[] = [];
 		for (const strokeId of strokeIds) {
 			const before = captureStrokeSnapshot(strokeId);
 			if (!before) continue;
-			const center = computeStrokeCenter(strokeId);
+			const center = sharedCenter?.clone() ?? computeStrokeCenter(strokeId);
 			if (!center) continue;
 			const changed = commitSnapshotMutation(
 				strokeId,
@@ -1679,12 +1695,13 @@
 		const rotation = new THREE.Matrix4().makeRotationAxis(activeNormal.clone().normalize(), radians);
 		const strokeIds = resolveSelectedStrokeIds();
 		if (!strokeIds.length) return false;
+		const sharedCenter = strokeIds.length > 1 ? computeSelectionCenter(strokeIds) : null;
 		let changedAny = false;
 		const historyEntries: HistoryEntry[] = [];
 		for (const strokeId of strokeIds) {
 			const before = captureStrokeSnapshot(strokeId);
 			if (!before) continue;
-			const center = computeStrokeCenter(strokeId);
+			const center = sharedCenter?.clone() ?? computeStrokeCenter(strokeId);
 			if (!center) continue;
 			const changed = commitSnapshotMutation(
 				strokeId,
