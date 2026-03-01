@@ -155,6 +155,7 @@ Paste 오프셋 규칙:
 1. Grid snap
 2. Angle snap
 3. Surface/vertex snap(고급)
+4. Grid snap ON 시 draw/fill 경로 샘플도 active view 평면 격자에 정렬(advanced)
 
 규칙:
 1. 초등 모드는 Move/Scale 중심

@@ -1642,6 +1642,19 @@
 		return Math.round(value / step) * step;
 	}
 
+	function snapPointToActiveGrid(point: THREE.Vector3) {
+		if (!gridSnapEnabled) return point.clone();
+		const step = resolveGridSnapStep();
+		const snappedU = snapByStep(point.dot(activeTangentU), step);
+		const snappedV = snapByStep(point.dot(activeTangentV), step);
+		const projectedN = point.dot(activeNormal);
+		return activeTangentU
+			.clone()
+			.multiplyScalar(snappedU)
+			.add(activeTangentV.clone().multiplyScalar(snappedV))
+			.add(activeNormal.clone().multiplyScalar(projectedN));
+	}
+
 	function getTransformPivot(
 		strokeId: string,
 		selectedIds: string[],
@@ -2161,14 +2174,19 @@
 		if (!activeStroke) return;
 		const force = options?.force ?? false;
 		const stamp = options?.stamp ?? false;
+		const snappedPoint = snapPointToActiveGrid(point);
 		const usingFillTool = activeStrokeTool === 'fill';
 		const toolRadius = brushRadius * (usingFillTool ? FILL_TOOL_RADIUS_SCALE : 1);
 		const minSpacing = toolRadius * (usingFillTool ? FILL_TOOL_SPACING_RATIO : 0.16);
-		if (!force && lastSurfacePoint && lastSurfacePoint.distanceToSquared(point) < minSpacing * minSpacing) {
+		if (
+			!force &&
+			lastSurfacePoint &&
+			lastSurfacePoint.distanceToSquared(snappedPoint) < minSpacing * minSpacing
+		) {
 			return;
 		}
 
-		const { u, v } = projectToActiveUV(point);
+		const { u, v } = projectToActiveUV(snappedPoint);
 		const layerGain = THREE.MathUtils.clamp(0.22 + brushStrength * 0.74, 0.22, 1.06);
 		const depthScale = stamp ? STAMP_DEPTH_BOOST : 1;
 		const stampRadiusScale = stamp ? STAMP_RADIUS_SHRINK : 1;
@@ -2187,7 +2205,7 @@
 		);
 		const activeStrokeId = String(activeStroke.userData.strokeId ?? activeStroke.name);
 		const baseFromMap = sampleStrokeSupportHeight(activeView, u, v);
-		const baseFromExistingDots = sampleTopFromExistingDots(point, activeNormal, activeStrokeId);
+		const baseFromExistingDots = sampleTopFromExistingDots(snappedPoint, activeNormal, activeStrokeId);
 		const supportHeight = Math.max(baseFromMap, baseFromExistingDots);
 		const currentMapHeight = sampleHeight(activeView, u, v);
 
@@ -2196,7 +2214,7 @@
 		}
 		depositHeight(activeView, u, v, depositRadius, depositAmount, { wetnessBoost });
 		const dotHeight = supportHeight + depositAmount;
-		const liftedPoint = point.clone().addScaledVector(activeNormal, dotHeight);
+		const liftedPoint = snappedPoint.clone().addScaledVector(activeNormal, dotHeight);
 		const strokeId = activeStrokeId;
 
 		const brushDot: BrushDotMesh = new THREE.Mesh(
@@ -2214,7 +2232,7 @@
 		strokeDots.push({
 			id: nextDotId(),
 			mesh: brushDot,
-			basePoint: point.clone(),
+			basePoint: snappedPoint.clone(),
 			position: liftedPoint.clone(),
 			u,
 			v,
@@ -2225,7 +2243,7 @@
 			view: activeView,
 			strokeId
 		});
-		lastSurfacePoint = point.clone();
+		lastSurfacePoint = snappedPoint.clone();
 		markSmoothSurfaceDirty();
 	}
 

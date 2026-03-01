@@ -84,11 +84,11 @@
 진행(부분 완료):
 1. Scope B-1 수치 Transform 패널: 완료
 2. Scope B-2 Pivot 모드(Object/Selection/World): 완료
-3. Scope B-3 Grid/Angle Snap: 기본 완료(Transform 단계)
+3. Scope B-3 Grid/Angle Snap: 완료(Transform + Draw path, 고급 모드 토글 기반)
 4. Scope B-4 Plane Cut 독립 툴: 기본 완료(keep side 옵션)
 
 남은 Scope B:
-1. Snap의 드로잉 경로 적용 범위 확대 여부 결정
+1. 없음 (Scope B 구현 잠금)
 
 ## 5. 기능 게이팅 기준
 새 기능은 아래를 모두 통과해야 기본 노출 가능:
