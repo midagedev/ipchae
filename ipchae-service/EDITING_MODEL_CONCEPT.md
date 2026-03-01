@@ -204,6 +204,12 @@ Geometry Cut 세부:
 2. Layer 잠금: 편집 차단 + 잠금 해제 CTA
 3. Slice 바깥: 커서 경고 표시
 
+표준 안내 문구(2026-03-01 적용):
+1. 선택 없음: `선택된 메시가 없습니다. Select 또는 Select All 후 다시 시도하세요.`
+2. Slice OFF 상태에서 Geometry Cut: `Slice Mode가 꺼져 있습니다. 먼저 Slice Mode를 켜주세요.`
+3. Slice Layer 숨김: `활성 Slice Layer가 숨김 상태입니다. Show로 전환 후 다시 시도하세요.`
+4. Slice Layer 잠금: `활성 Slice Layer가 잠금 상태입니다. Unlock 후 다시 시도하세요.`
+
 ## 10. 초등 모드/고급 모드 UX 가이드
 ## 10.1 Beginner
 1. 단일 선택 자동 유지

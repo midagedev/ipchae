@@ -126,6 +126,7 @@
 	let editActionStatus = '';
 	let selectedStrokeId: string | null = null;
 	let selectedStrokeCount = 0;
+	let editCommitToken = 0;
 
 	let brushSize = 20;
 	let brushStrength = 0.28;
@@ -255,6 +256,7 @@
 	$: editContextLabel = `선택 ${selectedStrokeLabel} · Slice ${sliceLabel}${activeLayerBlocked ? ' · Layer Locked/Hidden' : ''}`;
 	$: autosaveSignal = [
 		page.params.projectId,
+		editCommitToken,
 		startMode,
 		selectedStarterTemplateId,
 		starterHeadRatio,
@@ -563,8 +565,39 @@
 		selectedStrokeCount = stageRef?.getSelectedStrokeIds?.().length ?? (selectedStrokeId ? 1 : 0);
 	}
 
-	function blockedEditMessage() {
-		return '활성 Slice Layer가 숨김/잠금 상태라 편집할 수 없습니다.';
+	function onStageHistoryCommit() {
+		editCommitToken = Date.now();
+		syncSelectedStrokeId();
+	}
+
+	type EditGuardOptions = {
+		requiresSelection?: boolean;
+		requiresWritableLayer?: boolean;
+		requiresSlice?: boolean;
+	};
+
+	function resolveEditGuard(options: EditGuardOptions = {}): string | null {
+		if (options.requiresSlice && !sliceEnabled) {
+			return 'Slice Mode가 꺼져 있습니다. 먼저 Slice Mode를 켜주세요.';
+		}
+		if (options.requiresWritableLayer && sliceEnabled) {
+			if (!activeSliceLayer) {
+				return '활성 Slice Layer가 없습니다. Layer를 먼저 선택해 주세요.';
+			}
+			if (!activeSliceLayer.visible) {
+				return '활성 Slice Layer가 숨김 상태입니다. Show로 전환 후 다시 시도하세요.';
+			}
+			if (activeSliceLayer.locked) {
+				return '활성 Slice Layer가 잠금 상태입니다. Unlock 후 다시 시도하세요.';
+			}
+		}
+		if (options.requiresSelection) {
+			syncSelectedStrokeId();
+			if (selectedStrokeCount === 0) {
+				return '선택된 메시가 없습니다. Select 또는 Select All 후 다시 시도하세요.';
+			}
+		}
+		return null;
 	}
 
 	function runValidation() {
@@ -679,14 +712,20 @@
 	}
 
 	function selectStrokeGroup() {
+		const guardMessage = resolveEditGuard({ requiresSelection: true });
+		if (guardMessage) {
+			editActionStatus = guardMessage;
+			return;
+		}
 		const ok = stageRef?.selectStrokeGroup?.();
 		editActionStatus = ok ? '그룹 선택' : '선택한 메시가 그룹에 속해있지 않습니다.';
 		syncSelectedStrokeId();
 	}
 
 	function groupSelectedStrokes() {
-		if (activeLayerBlocked) {
-			editActionStatus = blockedEditMessage();
+		const guardMessage = resolveEditGuard({ requiresSelection: true, requiresWritableLayer: true });
+		if (guardMessage) {
+			editActionStatus = guardMessage;
 			return;
 		}
 		const ok = stageRef?.groupSelectedStrokes?.();
@@ -695,8 +734,9 @@
 	}
 
 	function ungroupSelectedStrokes() {
-		if (activeLayerBlocked) {
-			editActionStatus = blockedEditMessage();
+		const guardMessage = resolveEditGuard({ requiresSelection: true, requiresWritableLayer: true });
+		if (guardMessage) {
+			editActionStatus = guardMessage;
 			return;
 		}
 		const ok = stageRef?.ungroupSelectedStrokes?.();
@@ -705,14 +745,20 @@
 	}
 
 	function copySelectedStroke() {
+		const guardMessage = resolveEditGuard({ requiresSelection: true });
+		if (guardMessage) {
+			editActionStatus = guardMessage;
+			return;
+		}
 		const ok = stageRef?.copySelectedStroke?.();
-		editActionStatus = ok ? '선택 복사 완료 (Ctrl/Cmd+C)' : '선택된 스트로크가 없습니다.';
+		editActionStatus = ok ? '선택 복사 완료 (Ctrl/Cmd+C)' : '복사할 수 없습니다.';
 		syncSelectedStrokeId();
 	}
 
 	function pasteStroke() {
-		if (activeLayerBlocked) {
-			editActionStatus = blockedEditMessage();
+		const guardMessage = resolveEditGuard({ requiresWritableLayer: true });
+		if (guardMessage) {
+			editActionStatus = guardMessage;
 			return;
 		}
 		const ok = stageRef?.pasteCopiedStroke?.();
@@ -721,38 +767,42 @@
 	}
 
 	function cutSelectedStroke() {
-		if (activeLayerBlocked) {
-			editActionStatus = blockedEditMessage();
+		const guardMessage = resolveEditGuard({ requiresSelection: true, requiresWritableLayer: true });
+		if (guardMessage) {
+			editActionStatus = guardMessage;
 			return;
 		}
 		const ok = stageRef?.cutSelectedStroke?.();
-		editActionStatus = ok ? '잘라내기 완료 (Ctrl/Cmd+X)' : '선택된 스트로크가 없습니다.';
+		editActionStatus = ok ? '잘라내기 완료 (Ctrl/Cmd+X)' : '잘라내기할 수 없습니다.';
 		syncSelectedStrokeId();
 	}
 
 	function duplicateSelectedStroke() {
-		if (activeLayerBlocked) {
-			editActionStatus = blockedEditMessage();
+		const guardMessage = resolveEditGuard({ requiresSelection: true, requiresWritableLayer: true });
+		if (guardMessage) {
+			editActionStatus = guardMessage;
 			return;
 		}
 		const ok = stageRef?.duplicateSelectedStroke?.();
-		editActionStatus = ok ? '복제 완료 (Ctrl/Cmd+D)' : '선택된 스트로크가 없습니다.';
+		editActionStatus = ok ? '복제 완료 (Ctrl/Cmd+D)' : '복제할 수 없습니다.';
 		syncSelectedStrokeId();
 	}
 
 	function deleteSelectedStroke() {
-		if (activeLayerBlocked) {
-			editActionStatus = blockedEditMessage();
+		const guardMessage = resolveEditGuard({ requiresSelection: true, requiresWritableLayer: true });
+		if (guardMessage) {
+			editActionStatus = guardMessage;
 			return;
 		}
 		const ok = stageRef?.deleteSelectedStroke?.();
-		editActionStatus = ok ? '삭제 완료 (Delete/Backspace)' : '선택된 스트로크가 없습니다.';
+		editActionStatus = ok ? '삭제 완료 (Delete/Backspace)' : '삭제할 수 없습니다.';
 		syncSelectedStrokeId();
 	}
 
 	function insertPrimitive(kind: 'sphere' | 'box' | 'cylinder') {
-		if (activeLayerBlocked) {
-			editActionStatus = blockedEditMessage();
+		const guardMessage = resolveEditGuard({ requiresWritableLayer: true });
+		if (guardMessage) {
+			editActionStatus = guardMessage;
 			return;
 		}
 		const ok = stageRef?.insertPrimitiveMesh?.(kind);
@@ -768,66 +818,72 @@
 	}
 
 	function nudgeSelection(deltaU: number, deltaV: number, deltaN = 0) {
-		if (activeLayerBlocked) {
-			editActionStatus = blockedEditMessage();
+		const guardMessage = resolveEditGuard({ requiresSelection: true, requiresWritableLayer: true });
+		if (guardMessage) {
+			editActionStatus = guardMessage;
 			return;
 		}
 		const ok = stageRef?.nudgeSelectedStroke?.(deltaU, deltaV, deltaN);
 		editActionStatus = ok
 			? `이동 (${deltaU.toFixed(2)}, ${deltaV.toFixed(2)}, ${deltaN.toFixed(2)})`
-			: '선택된 스트로크가 없습니다.';
+			: '이동할 수 없습니다.';
 		syncSelectedStrokeId();
 	}
 
 	function scaleSelection(scaleFactor: number) {
-		if (activeLayerBlocked) {
-			editActionStatus = blockedEditMessage();
+		const guardMessage = resolveEditGuard({ requiresSelection: true, requiresWritableLayer: true });
+		if (guardMessage) {
+			editActionStatus = guardMessage;
 			return;
 		}
 		const ok = stageRef?.scaleSelectedStroke?.(scaleFactor);
-		editActionStatus = ok ? `스케일 x${scaleFactor.toFixed(2)}` : '선택된 스트로크가 없습니다.';
+		editActionStatus = ok ? `스케일 x${scaleFactor.toFixed(2)}` : '스케일할 수 없습니다.';
 		syncSelectedStrokeId();
 	}
 
 	function rotateSelection(degrees: number) {
-		if (activeLayerBlocked) {
-			editActionStatus = blockedEditMessage();
+		const guardMessage = resolveEditGuard({ requiresSelection: true, requiresWritableLayer: true });
+		if (guardMessage) {
+			editActionStatus = guardMessage;
 			return;
 		}
 		const ok = stageRef?.rotateSelectedStroke?.(degrees);
-		editActionStatus = ok ? `회전 ${degrees > 0 ? '+' : ''}${degrees}°` : '선택된 스트로크가 없습니다.';
+		editActionStatus = ok ? `회전 ${degrees > 0 ? '+' : ''}${degrees}°` : '회전할 수 없습니다.';
 		syncSelectedStrokeId();
 	}
 
 	function applyNumericMove() {
-		if (activeLayerBlocked) {
-			editActionStatus = blockedEditMessage();
+		const guardMessage = resolveEditGuard({ requiresSelection: true, requiresWritableLayer: true });
+		if (guardMessage) {
+			editActionStatus = guardMessage;
 			return;
 		}
 		const ok = stageRef?.translateSelectedStroke?.(moveInputX, moveInputY, moveInputZ);
 		editActionStatus = ok
 			? `수치 이동 (${moveInputX.toFixed(2)}, ${moveInputY.toFixed(2)}, ${moveInputZ.toFixed(2)})`
-			: '선택된 스트로크가 없습니다.';
+			: '수치 이동할 수 없습니다.';
 		syncSelectedStrokeId();
 	}
 
 	function applyNumericRotate() {
-		if (activeLayerBlocked) {
-			editActionStatus = blockedEditMessage();
+		const guardMessage = resolveEditGuard({ requiresSelection: true, requiresWritableLayer: true });
+		if (guardMessage) {
+			editActionStatus = guardMessage;
 			return;
 		}
 		const ok = stageRef?.rotateSelectedStroke?.(rotateInputDegrees);
-		editActionStatus = ok ? `수치 회전 ${rotateInputDegrees.toFixed(1)}°` : '선택된 스트로크가 없습니다.';
+		editActionStatus = ok ? `수치 회전 ${rotateInputDegrees.toFixed(1)}°` : '수치 회전할 수 없습니다.';
 		syncSelectedStrokeId();
 	}
 
 	function applyNumericScale() {
-		if (activeLayerBlocked) {
-			editActionStatus = blockedEditMessage();
+		const guardMessage = resolveEditGuard({ requiresSelection: true, requiresWritableLayer: true });
+		if (guardMessage) {
+			editActionStatus = guardMessage;
 			return;
 		}
 		const ok = stageRef?.scaleSelectedStroke?.(scaleInputFactor);
-		editActionStatus = ok ? `수치 스케일 x${scaleInputFactor.toFixed(3)}` : '선택된 스트로크가 없습니다.';
+		editActionStatus = ok ? `수치 스케일 x${scaleInputFactor.toFixed(3)}` : '수치 스케일할 수 없습니다.';
 		syncSelectedStrokeId();
 	}
 
@@ -838,18 +894,24 @@
 	}
 
 	function resetSelectionTransform() {
-		if (activeLayerBlocked) {
-			editActionStatus = blockedEditMessage();
+		const guardMessage = resolveEditGuard({ requiresSelection: true, requiresWritableLayer: true });
+		if (guardMessage) {
+			editActionStatus = guardMessage;
 			return;
 		}
 		const ok = stageRef?.resetSelectedStrokeTransform?.();
-		editActionStatus = ok ? '트랜스폼 초기화' : '초기화할 선택 스트로크가 없습니다.';
+		editActionStatus = ok ? '트랜스폼 초기화' : '초기화할 수 없습니다.';
 		syncSelectedStrokeId();
 	}
 
 	function planeCutSelection(keepSide: 'largest' | 'positive' | 'negative') {
-		if (activeLayerBlocked) {
-			editActionStatus = blockedEditMessage();
+		const guardMessage = resolveEditGuard({
+			requiresSelection: true,
+			requiresWritableLayer: true,
+			requiresSlice: true
+		});
+		if (guardMessage) {
+			editActionStatus = guardMessage;
 			return;
 		}
 		const ok = stageRef?.planeCutSelectedStroke?.(keepSide);
@@ -859,9 +921,7 @@
 				: keepSide === 'negative'
 					? 'Plane Cut - 적용'
 					: 'Plane Cut(큰 쪽 유지) 적용'
-			: sliceEnabled
-				? '컷팅 결과가 없습니다. 슬라이스 위치를 조정하세요.'
-				: '슬라이스 모드를 켜야 컷팅할 수 있습니다.';
+			: '컷팅 결과가 없습니다. 슬라이스 위치를 조정하세요.';
 		syncSelectedStrokeId();
 	}
 
@@ -924,6 +984,7 @@
 							this={StageComponent}
 							bind:this={stageRef}
 							on:selectionchange={onStageSelectionChange}
+							on:historycommit={onStageHistoryCommit}
 							bind:brushSize
 							bind:brushStrength
 							bind:brushColorHex

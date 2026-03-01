@@ -24,6 +24,11 @@ type StudioSnapshotV1 = {
   autoFillClosedStroke: boolean;
   activeView: 'front' | 'right' | 'top' | 'left' | 'back';
   inputMode: 'draw' | 'pan';
+  transformPivotMode?: 'object' | 'selection' | 'world';
+  gridSnapEnabled?: boolean;
+  gridSnapStep?: number;
+  angleSnapEnabled?: boolean;
+  angleSnapDegrees?: number;
   sliceEnabled: boolean;
   activeSliceLayerId: string;
   sliceLayers: Array<{

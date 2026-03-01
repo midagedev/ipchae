@@ -78,6 +78,8 @@
 1. Scope A 전체(드로잉/선택/복제/트랜스폼/그룹/프리미티브/기본 컷)
 2. 배치 편집 트랜잭션 undo/redo 1회 처리
 3. 그룹 ID 안전 복제/붙여넣기
+4. Selection/Layer/Slice 충돌 안내 문구 표준화(편집 가드 규칙 통일)
+5. Stage history commit 기반 autosave/sync 트리거 연결 (`docs/ops/studio-sync-transaction-policy.md`)
 
 진행(부분 완료):
 1. Scope B-1 수치 Transform 패널: 완료
@@ -87,8 +89,6 @@
 
 남은 Scope B:
 1. Snap의 드로잉 경로 적용 범위 확대 여부 결정
-2. Selection/Layer/Slice 충돌 문구 표준화 최종안
-3. Transaction 단위 원격 Sync 정책 문서/코드 일치화
 
 ## 5. 기능 게이팅 기준
 새 기능은 아래를 모두 통과해야 기본 노출 가능:

@@ -195,6 +195,7 @@
 	const strokeOriginSnapshots = new Map<string, StrokeSnapshot>();
 	const dispatch = createEventDispatcher<{
 		selectionchange: { strokeId: string | null };
+		historycommit: { historyDepth: number; redoDepth: number };
 	}>();
 	let selectedStrokeId: string | null = null;
 	const selectedStrokeIds = new Set<string>();
@@ -1142,6 +1143,10 @@
 	function pushHistory(entry: HistoryEntry) {
 		actionHistory.push(entry);
 		redoHistory.length = 0;
+		dispatch('historycommit', {
+			historyDepth: actionHistory.length,
+			redoDepth: redoHistory.length
+		});
 	}
 
 	function pushHistoryEntries(entries: HistoryEntry[]) {
@@ -2734,6 +2739,10 @@
 		rebuildHeightMaps();
 		refreshAllDotHeights();
 		markSmoothSurfaceDirty();
+		dispatch('historycommit', {
+			historyDepth: actionHistory.length,
+			redoDepth: redoHistory.length
+		});
 	}
 
 	export function redoLastStroke() {
@@ -2745,6 +2754,10 @@
 		rebuildHeightMaps();
 		refreshAllDotHeights();
 		markSmoothSurfaceDirty();
+		dispatch('historycommit', {
+			historyDepth: actionHistory.length,
+			redoDepth: redoHistory.length
+		});
 	}
 
 	export function clearAllStrokes() {

@@ -28,6 +28,8 @@ test('studio renders import action', async ({ page }) => {
 	await expect(page.getByRole('button', { name: 'Select', exact: true })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Select All' })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Duplicate' })).toBeVisible();
+	await page.getByRole('button', { name: 'Copy' }).click();
+	await expect(page.getByText('선택된 메시가 없습니다. Select 또는 Select All 후 다시 시도하세요.')).toBeVisible();
 	await page.getByRole('button', { name: '초등 모드' }).click();
 	await expect(page.getByRole('button', { name: 'Import' })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Group', exact: true })).toBeVisible();
@@ -36,4 +38,6 @@ test('studio renders import action', async ({ page }) => {
 	await expect(page.getByRole('button', { name: 'Plane Cut +' })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Delete' })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Slice Cut' })).toBeVisible();
+	await page.getByRole('button', { name: 'Plane Cut +' }).click();
+	await expect(page.getByText('Slice Mode가 꺼져 있습니다. 먼저 Slice Mode를 켜주세요.')).toBeVisible();
 });
