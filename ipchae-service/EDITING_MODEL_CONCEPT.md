@@ -1,6 +1,6 @@
 # IPCHAE Editing Model Playbook (Mesh-Centric CAD-Lite)
 
-기준일: 2026-02-28  
+기준일: 2026-03-01  
 대상: `/Users/hckim/repo/ipchae/ipchae-service`
 
 연계 문서: `/Users/hckim/repo/ipchae/ipchae-service/DRAW_FIRST_CAD_BALANCE_SCOPE.md`  
@@ -222,6 +222,13 @@ Geometry Cut 세부:
 1. 다중 선택 + 그룹
 2. full transform/gizmo
 3. geometry cut/boolean/snap/pivot 노출
+
+## 10.3 용어/아이콘/다국어 가이드
+1. 초등 모드 주요 액션은 `아이콘 + 짧은 동사` 조합을 기본으로 사용한다.
+2. 지원 언어는 `한국어/English/日本語`이며, 토글 즉시 라벨이 바뀌어야 한다.
+3. 의미가 겹치는 용어는 하나로 고정한다.
+4. `Cut`은 `잘라내기(Clipboard)`와 `Geometry Cut`로 문맥을 분리 유지한다.
+5. 표준 경고 문구는 언어별 1:1 대응 번역본을 유지한다.
 
 ## 11. 협업/동기화 관점
 협업 lock:

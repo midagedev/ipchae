@@ -20,11 +20,14 @@ npm run build
 ## Important Docs
 1. `/Users/hckim/repo/ipchae/ipchae-service/DRAW_FIRST_CAD_BALANCE_SCOPE.md`
 2. `/Users/hckim/repo/ipchae/ipchae-service/EDITING_MODEL_CONCEPT.md`
-3. `/Users/hckim/repo/ipchae/ipchae-service/EDITOR_SUPABASE_PARALLEL_ORCHESTRATION_PLAN.md`
-4. `/Users/hckim/repo/ipchae/ipchae-service/docs/contracts/scene-state-v1.md`
-5. `/Users/hckim/repo/ipchae/ipchae-service/docs/contracts/api-error-codes-v1.md`
-6. `/Users/hckim/repo/ipchae/ipchae-service/docs/ops/env-matrix.md`
-7. `/Users/hckim/repo/ipchae/ipchae-service/supabase/README.md`
+3. `/Users/hckim/repo/ipchae/ipchae-service/UX_CHILD_FIRST_RESET_PLAN.md`
+4. `/Users/hckim/repo/ipchae/ipchae-service/EDITOR_SUPABASE_PARALLEL_ORCHESTRATION_PLAN.md`
+5. `/Users/hckim/repo/ipchae/ipchae-service/docs/contracts/scene-state-v1.md`
+6. `/Users/hckim/repo/ipchae/ipchae-service/docs/contracts/api-error-codes-v1.md`
+7. `/Users/hckim/repo/ipchae/ipchae-service/docs/ops/studio-sync-transaction-policy.md`
+8. `/Users/hckim/repo/ipchae/ipchae-service/docs/ops/ui-localization-icon-policy.md`
+9. `/Users/hckim/repo/ipchae/ipchae-service/docs/ops/env-matrix.md`
+10. `/Users/hckim/repo/ipchae/ipchae-service/supabase/README.md`
 
 ## Environment
 `.env.example`를 기준으로 `.env`를 구성하세요.

@@ -2,6 +2,7 @@
 
 기준일: 2026-03-01  
 대상: `/Users/hckim/repo/ipchae/ipchae-service`
+주 사용자: 이비스페인트류 2D 드로잉 경험이 있는 초등 고학년/중학생(특히 캐릭터 드로잉 관심층)
 
 ## 1. 목표
 이 문서는 IPCHAE의 핵심 컨셉을 `2D 드로잉 기반 3D 펜 모델링`으로 유지하면서, 필요한 CAD 기본기를 어디까지 구현할지 범위를 고정하기 위한 기준 문서다.
@@ -21,15 +22,17 @@
 1. 초등 모드는 Draw-First 루프만 상시 노출한다.
 2. 고급 모드는 CAD 보강 기능을 열되, 기본 루프를 덮어쓰지 않는다.
 3. 동일 액션이라도 라벨은 초등/고급 문맥에 맞게 분리한다.
+4. 주요 메뉴는 `아이콘 + 짧은 텍스트`를 기본으로 하고, 한/영/일 다국어 토글을 지원한다.
 
 ## 3. UX 계층
 ## 3.1 Beginner (기본)
 상시 노출:
-1. Draw/Fill/Erase
+1. Draw/Fill/Erase (`✎/◍/⌫` 아이콘 + 텍스트)
 2. Select, Duplicate, Undo/Redo
 3. Move/Scale/Rotate(버튼 기반)
 4. Group/Ungroup(버튼 기반)
 5. Export
+6. Locale 토글(한국어/English/日本語)
 
 숨김:
 1. Import/검증 상세
@@ -80,6 +83,8 @@
 3. 그룹 ID 안전 복제/붙여넣기
 4. Selection/Layer/Slice 충돌 안내 문구 표준화(편집 가드 규칙 통일)
 5. Stage history commit 기반 autosave/sync 트리거 연결 (`docs/ops/studio-sync-transaction-policy.md`)
+6. Home/Studio 주요 메뉴 아이콘화(문자 아이콘 기반)
+7. Home/Studio 다국어 토글(한국어/English/日本語) 및 로컬 저장
 
 진행(부분 완료):
 1. Scope B-1 수치 Transform 패널: 완료
@@ -125,6 +130,7 @@
 3. 그룹 복제/붙여넣기 시 원본 그룹과 ID 충돌이 없다.
 4. Layer/Slice 잠금 상태에서 편집은 전부 차단되고 이유를 UI에 표시한다.
 5. e2e smoke + 타입체크 + 단위테스트가 모두 통과한다.
+6. Locale 전환 후 주요 메뉴 라벨과 CTA가 즉시 반영된다.
 
 ## 8. 의사결정 체크리스트
 기능 추가 요청이 오면 다음 순서로 판단한다.

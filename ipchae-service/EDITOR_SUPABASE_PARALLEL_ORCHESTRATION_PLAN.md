@@ -229,3 +229,17 @@
    1. T1 UX 리셋: Studio에 `초등 모드` 기본 UX 도입(고급 패널 숨김, 단순화된 상단 액션)
    2. T8 품질: E2E를 초등모드 -> 고급모드 전환 시나리오로 갱신
    3. 문서: `UX_CHILD_FIRST_RESET_PLAN.md` 작성
+15. 2026-03-01 (commit `28dd9dc`)
+   1. T1 CAD Baseline: Numeric transform 패널 + Pivot(Object/Selection/World) + Grid/Angle Snap + Plane Cut 모드 추가
+   2. T8 품질: 스모크 테스트에서 고급 편집 컨트롤 노출 검증 확장
+16. 2026-03-01 (commit `b40d59f`)
+   1. T2 상태관리: Pivot/Snap 설정을 `StudioSnapshotV1`에 영속화(load/save/autosave)
+   2. T3/T5 동기화: 정밀 트랜스폼 상태가 로컬/원격 스냅샷 경로에 포함되도록 정합성 보강
+17. 2026-03-01 (commit `96486dd`, `0b67667`)
+   1. T1/T2: 편집 가드 메시지 표준화(Selection/Layer/Slice)
+   2. T2/T3: Stage `historycommit` 이벤트 기반 autosave/sync 트리거 연결
+   3. T1 CAD Baseline 마감: Grid Snap 적용 범위를 transform에서 draw/fill path 샘플까지 확장
+18. 2026-03-01 (commit `8082bb5`)
+   1. T1 UX: Home/Studio 주요 메뉴 아이콘화(아이콘+텍스트)
+   2. T1 UX: 한/영/일 다국어 토글 및 로컬 저장 추가
+   3. 문서/테스트: UX reset 계획 업데이트 + 다국어 대응 e2e 검증 보강
