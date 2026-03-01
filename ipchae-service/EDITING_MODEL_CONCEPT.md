@@ -3,6 +3,9 @@
 기준일: 2026-02-28  
 대상: `/Users/hckim/repo/ipchae/ipchae-service`
 
+연계 문서: `/Users/hckim/repo/ipchae/ipchae-service/DRAW_FIRST_CAD_BALANCE_SCOPE.md`  
+이 문서는 데이터/액션 모델 기준을 다루고, 노출 우선순위와 구현 단계 범위는 연계 문서 기준으로 운영한다.
+
 ## 1. 목표와 원칙
 이 문서는 에디터 편집 모델을 일관되게 유지하기 위한 기준 문서다.
 
