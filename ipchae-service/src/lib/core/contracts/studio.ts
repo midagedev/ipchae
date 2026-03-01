@@ -3,6 +3,7 @@ export type DrawTool = 'free-draw' | 'fill' | 'erase';
 export type ViewId = 'front' | 'right' | 'top' | 'left' | 'back';
 export type InputMode = 'draw' | 'pan';
 export type SliceAxis = 'x' | 'y' | 'z';
+export type PivotMode = 'object' | 'selection' | 'world';
 
 export type SliceLayer = {
 	id: string;
@@ -33,6 +34,11 @@ export type StudioSnapshotV1 = {
 	autoFillClosedStroke: boolean;
 	activeView: ViewId;
 	inputMode: InputMode;
+	transformPivotMode?: PivotMode;
+	gridSnapEnabled?: boolean;
+	gridSnapStep?: number;
+	angleSnapEnabled?: boolean;
+	angleSnapDegrees?: number;
 	sliceEnabled: boolean;
 	activeSliceLayerId: string;
 	sliceLayers: SliceLayer[];

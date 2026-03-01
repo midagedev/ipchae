@@ -6,6 +6,7 @@
 	import type {
 		DrawTool,
 		InputMode,
+		PivotMode,
 		SliceAxis,
 		SliceLayer,
 		StartMode,
@@ -132,7 +133,7 @@
 	let mirrorDraw = false;
 	let smoothMeshView = true;
 	let drawTool: DrawTool = 'free-draw';
-	let transformPivotMode: 'object' | 'selection' | 'world' = 'selection';
+	let transformPivotMode: PivotMode = 'selection';
 	let gridSnapEnabled = false;
 	let gridSnapStep = 0.12;
 	let angleSnapEnabled = false;
@@ -268,6 +269,11 @@
 		autoFillClosedStroke,
 		activeView,
 		inputMode,
+		transformPivotMode,
+		gridSnapEnabled,
+		gridSnapStep,
+		angleSnapEnabled,
+		angleSnapDegrees,
 		sliceEnabled,
 		activeSliceLayerId,
 		sliceLayers
@@ -388,6 +394,21 @@
 		return 'blank';
 	}
 
+	function resolvePivotMode(mode: PivotMode | undefined): PivotMode {
+		if (mode === 'object' || mode === 'world' || mode === 'selection') return mode;
+		return 'selection';
+	}
+
+	function resolveGridSnapStep(step: number | undefined): number {
+		if (step === undefined || !Number.isFinite(step)) return 0.12;
+		return Math.max(0.001, Math.min(10, step));
+	}
+
+	function resolveAngleSnapDegrees(degrees: number | undefined): number {
+		if (degrees === undefined || !Number.isFinite(degrees)) return 12;
+		return Math.max(0.1, Math.min(180, degrees));
+	}
+
 	function applySnapshot(snapshot: StudioSnapshotV1) {
 		selectedStarterTemplateId = snapshot.starterTemplateId ?? selectedStarterTemplateId;
 		starterHeadRatio = snapshot.starterProportion?.headRatio ?? starterHeadRatio;
@@ -402,6 +423,11 @@
 		autoFillClosedStroke = snapshot.autoFillClosedStroke;
 		activeView = snapshot.activeView;
 		inputMode = snapshot.inputMode;
+		transformPivotMode = resolvePivotMode(snapshot.transformPivotMode);
+		gridSnapEnabled = snapshot.gridSnapEnabled ?? false;
+		gridSnapStep = resolveGridSnapStep(snapshot.gridSnapStep);
+		angleSnapEnabled = snapshot.angleSnapEnabled ?? false;
+		angleSnapDegrees = resolveAngleSnapDegrees(snapshot.angleSnapDegrees);
 		sliceEnabled = snapshot.sliceEnabled;
 
 		if (snapshot.sliceLayers.length > 0) {
@@ -436,6 +462,11 @@
 			autoFillClosedStroke,
 			activeView,
 			inputMode,
+			transformPivotMode,
+			gridSnapEnabled,
+			gridSnapStep,
+			angleSnapEnabled,
+			angleSnapDegrees,
 			sliceEnabled,
 			activeSliceLayerId,
 			sliceLayers: sliceLayers.map((layer) => ({ ...layer })),
@@ -800,7 +831,7 @@
 		syncSelectedStrokeId();
 	}
 
-	function setPivotMode(mode: 'object' | 'selection' | 'world') {
+	function setPivotMode(mode: PivotMode) {
 		transformPivotMode = mode;
 		editActionStatus =
 			mode === 'object' ? 'Pivot: Object' : mode === 'selection' ? 'Pivot: Selection' : 'Pivot: World';
