@@ -1,0 +1,39 @@
+name: IPCHAEAppSample
+options:
+  minimumXcodeGenVersion: 2.38.0
+  createIntermediateGroups: true
+
+packages:
+  AppShell:
+    path: ../AppShell
+
+settings:
+  base:
+    SWIFT_VERSION: 6.0
+
+targets:
+  IPCHAEApp:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: App
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ipchae.sample
+        INFOPLIST_FILE: App/Info.plist
+    dependencies:
+      - package: AppShell
+        product: AppShell
+
+  IPCHAEAppUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: IPCHAEAppUITests
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: IPCHAEApp

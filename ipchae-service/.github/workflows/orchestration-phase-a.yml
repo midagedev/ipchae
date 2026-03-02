@@ -1,0 +1,38 @@
+name: Orchestration Phase A Checks
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  web-and-coredomain-checks:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Node deps
+        run: npm ci
+
+      - name: Web unit tests
+        run: npm run test
+
+      - name: Web type checks
+        run: npm run check
+
+      - name: Swift tests (CoreDomain)
+        run: swift test --package-path ios-app/CoreDomain
+
+      - name: Swift tests (AppShell)
+        run: swift test --package-path ios-app/AppShell
+
+      - name: Editor spike benchmark smoke
+        run: swift run --package-path ios-app/CoreDomain EditorSpikeCLI --strokes 80 --points 80 --undo-ratio 0.2

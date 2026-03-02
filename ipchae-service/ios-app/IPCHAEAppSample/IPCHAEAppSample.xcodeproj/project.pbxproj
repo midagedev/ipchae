@@ -1,0 +1,427 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		3B43C4BF39B81B60FF8756B6 /* IPCHAEAppGuestFlowUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B2056AAD2C6A121C9FF90C0 /* IPCHAEAppGuestFlowUITests.swift */; };
+		502E676BB705F1991C32A2C1 /* IPCHAEApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E5FEC45AF19699CDB8681F8 /* IPCHAEApp.swift */; };
+		BFCB697DF2BD279B50960307 /* AppShell in Frameworks */ = {isa = PBXBuildFile; productRef = EDAFF94E467F47150A37B25D /* AppShell */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		DDBD19B43CCD662BB7F4A7D0 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 9A43A5357C18D2A1FFA8E73B /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = BF561DBBAD40FAC274558A27;
+			remoteInfo = IPCHAEApp;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		03A5916D681F85B35F5A31EC /* IPCHAEApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = IPCHAEApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		3EDAB27D789E0435BE3CBBA9 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		6E5FEC45AF19699CDB8681F8 /* IPCHAEApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IPCHAEApp.swift; sourceTree = "<group>"; };
+		73832B9A25D0604D232FE319 /* AppShell */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AppShell; path = ../AppShell; sourceTree = SOURCE_ROOT; };
+		9B2056AAD2C6A121C9FF90C0 /* IPCHAEAppGuestFlowUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IPCHAEAppGuestFlowUITests.swift; sourceTree = "<group>"; };
+		E1B6FE8ABF880F1DB7C1CFD6 /* IPCHAEAppUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = IPCHAEAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		E26FE77EE455E6689722FB6F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BFCB697DF2BD279B50960307 /* AppShell in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		556F84A58BD880A044AA9367 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				03A5916D681F85B35F5A31EC /* IPCHAEApp.app */,
+				E1B6FE8ABF880F1DB7C1CFD6 /* IPCHAEAppUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		61519E84B718DF01D5AE10A1 = {
+			isa = PBXGroup;
+			children = (
+				7BECBF93D48E8EB3912EDE9C /* App */,
+				A5B160F5D07B62B83FEAEA88 /* IPCHAEAppUITests */,
+				8C21C98392C9BF0794D8D57E /* Packages */,
+				556F84A58BD880A044AA9367 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		7BECBF93D48E8EB3912EDE9C /* App */ = {
+			isa = PBXGroup;
+			children = (
+				3EDAB27D789E0435BE3CBBA9 /* Info.plist */,
+				6E5FEC45AF19699CDB8681F8 /* IPCHAEApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		8C21C98392C9BF0794D8D57E /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				73832B9A25D0604D232FE319 /* AppShell */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
+		A5B160F5D07B62B83FEAEA88 /* IPCHAEAppUITests */ = {
+			isa = PBXGroup;
+			children = (
+				9B2056AAD2C6A121C9FF90C0 /* IPCHAEAppGuestFlowUITests.swift */,
+			);
+			path = IPCHAEAppUITests;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		1FD24FD6FB818BAFA7579C62 /* IPCHAEAppUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 40E488AFDC9B477AA8E3B333 /* Build configuration list for PBXNativeTarget "IPCHAEAppUITests" */;
+			buildPhases = (
+				389016DE28247561C3006F76 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				F2F7DACEA3AEADF0064716F6 /* PBXTargetDependency */,
+			);
+			name = IPCHAEAppUITests;
+			packageProductDependencies = (
+			);
+			productName = IPCHAEAppUITests;
+			productReference = E1B6FE8ABF880F1DB7C1CFD6 /* IPCHAEAppUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		BF561DBBAD40FAC274558A27 /* IPCHAEApp */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = EDD410C30FA08FAFB1FC5569 /* Build configuration list for PBXNativeTarget "IPCHAEApp" */;
+			buildPhases = (
+				441F31ABC6228DAA8E02A1D3 /* Sources */,
+				E26FE77EE455E6689722FB6F /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = IPCHAEApp;
+			packageProductDependencies = (
+				EDAFF94E467F47150A37B25D /* AppShell */,
+			);
+			productName = IPCHAEApp;
+			productReference = 03A5916D681F85B35F5A31EC /* IPCHAEApp.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		9A43A5357C18D2A1FFA8E73B /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					1FD24FD6FB818BAFA7579C62 = {
+						TestTargetID = BF561DBBAD40FAC274558A27;
+					};
+				};
+			};
+			buildConfigurationList = D686E89734E6E7FE4039673F /* Build configuration list for PBXProject "IPCHAEAppSample" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 61519E84B718DF01D5AE10A1;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				95C2A6FA077C2C81BA10D915 /* XCLocalSwiftPackageReference "../AppShell" */,
+			);
+			preferredProjectObjectVersion = 77;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				BF561DBBAD40FAC274558A27 /* IPCHAEApp */,
+				1FD24FD6FB818BAFA7579C62 /* IPCHAEAppUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		389016DE28247561C3006F76 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3B43C4BF39B81B60FF8756B6 /* IPCHAEAppGuestFlowUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		441F31ABC6228DAA8E02A1D3 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				502E676BB705F1991C32A2C1 /* IPCHAEApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		F2F7DACEA3AEADF0064716F6 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = BF561DBBAD40FAC274558A27 /* IPCHAEApp */;
+			targetProxy = DDBD19B43CCD662BB7F4A7D0 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		106A245F3D9F022D1B3231B1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = App/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.ipchae.sample;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		56CCEC1FA8EBCE98EB42394A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = App/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.ipchae.sample;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		8898A9BC671F4305FE43D694 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		DD323D013CCB15DC51C3FFDB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = IPCHAEApp;
+			};
+			name = Release;
+		};
+		F21AC146E8C35A746ECFD698 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = IPCHAEApp;
+			};
+			name = Debug;
+		};
+		F908EC9DCCEF40DB0939597A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		40E488AFDC9B477AA8E3B333 /* Build configuration list for PBXNativeTarget "IPCHAEAppUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F21AC146E8C35A746ECFD698 /* Debug */,
+				DD323D013CCB15DC51C3FFDB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		D686E89734E6E7FE4039673F /* Build configuration list for PBXProject "IPCHAEAppSample" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8898A9BC671F4305FE43D694 /* Debug */,
+				F908EC9DCCEF40DB0939597A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		EDD410C30FA08FAFB1FC5569 /* Build configuration list for PBXNativeTarget "IPCHAEApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				106A245F3D9F022D1B3231B1 /* Debug */,
+				56CCEC1FA8EBCE98EB42394A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		95C2A6FA077C2C81BA10D915 /* XCLocalSwiftPackageReference "../AppShell" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../AppShell;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		EDAFF94E467F47150A37B25D /* AppShell */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = AppShell;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 9A43A5357C18D2A1FFA8E73B /* Project object */;
+}
